@@ -1,0 +1,3423 @@
+name: Build EclipsFriends
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Create project files
+        run: |
+          set -e
+          mkdir -p src/main/java/ru/eclips/friends src/main/resources
+          cat > pom.xml <<'EOF_POM'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <project xmlns="http://maven.apache.org/POM/4.0.0"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+              <modelVersion>4.0.0</modelVersion>
+
+              <groupId>ru.eclips</groupId>
+              <artifactId>EclipsFriends</artifactId>
+              <version>1.0.0</version>
+              <packaging>jar</packaging>
+
+              <properties>
+                  <maven.compiler.source>17</maven.compiler.source>
+                  <maven.compiler.target>17</maven.compiler.target>
+                  <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+              </properties>
+
+              <repositories>
+                  <repository>
+                      <id>lanink</id>
+                      <url>https://repo.lanink.cn/repository/maven-public/</url>
+                  </repository>
+              </repositories>
+
+              <dependencies>
+                  <dependency>
+                      <groupId>cn.nukkit</groupId>
+                      <artifactId>Nukkit</artifactId>
+                      <version>MOT-SNAPSHOT</version>
+                      <scope>provided</scope>
+                  </dependency>
+              </dependencies>
+
+              <build>
+                  <finalName>EclipsFriends</finalName>
+                  <plugins>
+                      <plugin>
+                          <groupId>org.apache.maven.plugins</groupId>
+                          <artifactId>maven-compiler-plugin</artifactId>
+                          <version>3.11.0</version>
+                          <configuration>
+                              <release>17</release>
+                              <encoding>UTF-8</encoding>
+                          </configuration>
+                      </plugin>
+                  </plugins>
+              </build>
+          </project>
+          EOF_POM
+          cat > src/main/resources/plugin.yml <<'EOF_PLUGIN'
+          name: EclipsFriends
+          main: ru.eclips.friends.FriendsPlugin
+          version: "1.0.0"
+          api: ["1.0.0"]
+          author: Eclips
+          description: Друзья и огоньки (серии с другом) для сервера Eclips
+          softdepend: [TpCoins]
+
+          permissions:
+            eclipsfriends.admin:
+              description: Статистика огоньков (/af)
+              default: op
+            eclipsfriends.invis.hide:
+              description: Игрока с этим правом никогда не подсвечивают друзьям в невидимости (для персонала)
+              default: false
+          EOF_PLUGIN
+          cat > src/main/resources/config.yml <<'EOF_CONFIG'
+          # EclipsFriends: друзья и огоньки. После изменения перезапусти сервер.
+          # Цвета не нужны: тексты форм уже подобраны читаемыми на тёмном и светлом фоне.
+
+          # Часовой пояс, по которому считается сутки (новый день начинается в 00:00 по нему).
+          # Москва: Europe/Moscow
+          timezone: "Europe/Moscow"
+
+          limits:
+            # Максимум огоньков у одного игрока
+            max-sparks: 5
+            # Максимум друзей у одного игрока
+            max-friends: 15
+            # Сколько неотвеченных приглашений может висеть у одного игрока
+            max-incoming-invites: 10
+            # Сколько дней живёт приглашение (потом удаляется само)
+            invite-lifetime-days: 7
+            # Пауза в минутах перед повторным приглашением того же игрока после отказа (0 = без паузы)
+            invite-cooldown-minutes: 10
+
+          antiabuse:
+            # Сколько минут нужно наиграть на сервере (с момента установки плагина) каждому из двоих,
+            # чтобы начать огонёк. 0 = без ограничения
+            min-playtime-minutes: 60
+            # Запретить огонёк игрокам с одинаковым IP (защита от фарма альтами)
+            block-same-ip: true
+
+          # За сколько часов до конца дня напомнить игроку, что огонёк скоро сгорит (0 = не напоминать)
+          warn-hours-before-loss: 3
+
+          # Награда каждому из двоих за день огонька (монеты TpCoins).
+          # Огонёк "старше N дней", когда серия больше N.
+          reward:
+            base: 500
+            tier1-older-than-days: 7
+            tier1-coins: 700
+            tier2-older-than-days: 14
+            tier2-coins: 800
+            tier3-older-than-days: 30
+            tier3-coins: 1000
+
+          gifts:
+            # Сколько слотов можно использовать в одном подарке (от 1 до 9)
+            max-slots: 9
+            # Сколько неполученных подарков может ждать одного игрока (от 1 до 20)
+            max-unclaimed: 20
+            # Через сколько дней невзятый подарок возвращается отправителю
+            return-after-days: 14
+            # Включена ли анонимность по умолчанию (игрок может переключить её в сундуке)
+            default-anonymous: false
+            # Предметы, которые нельзя дарить (названия как в игре)
+            banned-items:
+              - bedrock
+              - command_block
+              - repeating_command_block
+              - chain_command_block
+              - barrier
+              - structure_block
+              - end_portal_frame
+
+          messages:
+            # Сколько анонимных сообщений можно отправить за день (всего, разным друзьям или одному)
+            daily-limit: 5
+            # Максимальная длина сообщения и ответа в символах
+            max-length: 150
+            # Сколько дней хранятся сообщения (жалобы без ответа админа хранятся дольше)
+            keep-days: 14
+            # Сколько сообщений максимум хранится у одного игрока (старые удаляются)
+            max-stored: 30
+            # Писать ли анонимные сообщения и ответы в консоль сервера (для модерации)
+            log-to-console: true
+
+          # Подсветка невидимых друзей: друзья игрока под эффектом невидимости видят вокруг него
+          # зелёные частицы и его ник над головой. Остальные игроки ничего не видят.
+          invisibility:
+            enabled: true
+            # Радиус в блоках (в пределах одного мира)
+            radius: 32
+            # Как часто обновлять подсветку, в тиках (20 тиков = 1 секунда)
+            interval-ticks: 5
+            # Зелёные частицы вокруг невидимого друга
+            particles: true
+            # Ник над головой невидимого друга
+            name-tag: true
+            # Цвет ника
+            name-color: "§a"
+            # Миры, где подсветка отключена (названия папок миров). Укажи сюда мир с дуэлями,
+            # если плагин Duel не определился автоматически.
+            disabled-worlds: []
+
+          texts:
+            # Текст кнопки "Что такое огонёк" (под ним плагин сам добавит таблицу наград)
+            what-is-spark: "Расти огонёк вместе со своим другом и вы оба будете получать монеты! Чем дольше ваш огонёк, тем больше монет! Если один из вас не продлит огонёк, вы потеряете серию."
+          EOF_CONFIG
+          cat > src/main/java/ru/eclips/friends/Store.java <<'EOF_STORE'
+          package ru.eclips.friends;
+
+          import cn.nukkit.utils.Config;
+
+          import java.io.File;
+          import java.nio.file.Files;
+          import java.nio.file.StandardCopyOption;
+          import java.util.ArrayList;
+          import java.util.Collection;
+          import java.util.LinkedHashMap;
+          import java.util.List;
+          import java.util.Map;
+          import java.util.concurrent.ExecutorService;
+          import java.util.concurrent.Executors;
+          import java.util.concurrent.TimeUnit;
+
+          /** Хранилище данных: друзья, огоньки, приглашения. Запись на диск идёт в отдельном потоке. */
+          final class Store {
+
+              static final class PD {
+                  String key = "";
+                  String name = "";
+                  String ip = "";
+                  long playSec = 0;
+                  long pending = 0;
+                  long lastSeen = 0;
+                  long msgDay = 0;
+                  int msgCount = 0;
+                  final List<String> friends = new ArrayList<>();
+                  final List<String> notices = new ArrayList<>();
+              }
+
+              static final class Spark {
+                  String a = "";
+                  String b = "";
+                  String an = "";
+                  String bn = "";
+                  int streak = 0;
+                  long start = 0;
+                  long lastDone = 0;
+                  long lastA = -1;
+                  long lastB = -1;
+
+                  String id() { return a + "|" + b; }
+                  boolean isA(String k) { return a.equals(k); }
+                  String other(String k) { return isA(k) ? b : a; }
+                  String otherName(String k) { return isA(k) ? bn : an; }
+                  long last(String k) { return isA(k) ? lastA : lastB; }
+                  void setLast(String k, long day) { if (isA(k)) lastA = day; else lastB = day; }
+              }
+
+              static final class Inv {
+                  String type = "friend";
+                  String from = "";
+                  String fromName = "";
+                  String to = "";
+                  String toName = "";
+                  long created = 0;
+              }
+
+              /** Событие для статистики: created (огонёк создан) или died (огонёк умер). */
+              static final class Ev {
+                  String type = "";
+                  long time = 0;
+              }
+
+              final List<Ev> events = new ArrayList<>();
+
+              /** Подарок: предметы хранятся в виде строк (см. GiftUi.ser/de). */
+              static final class Gift {
+                  long id = 0;
+                  String from = "";
+                  String fromName = "";
+                  String to = "";
+                  String toName = "";
+                  boolean anon = false;
+                  boolean returned = false;
+                  long created = 0;
+                  final List<String> items = new ArrayList<>();
+              }
+
+              /** Сообщение: type = anon (анонимное) или reply (ответ). */
+              static final class Msg {
+                  long id = 0;
+                  String type = "anon";
+                  String from = "";
+                  String fromName = "";
+                  String to = "";
+                  String toName = "";
+                  String text = "";
+                  long created = 0;
+                  boolean read = false;
+                  boolean replied = false;
+                  boolean reported = false;
+                  boolean handled = false;
+              }
+
+              final List<Gift> gifts = new ArrayList<>();
+              final List<Msg> msgs = new ArrayList<>();
+              private long lastId = 0;
+
+              long newId() {
+                  long id = Math.max(lastId + 1, System.currentTimeMillis());
+                  lastId = id;
+                  return id;
+              }
+
+              /** Неполученные подарки игрока, старые первыми. */
+              List<Gift> giftsFor(String to) {
+                  List<Gift> r = new ArrayList<>();
+                  for (Gift g : gifts) {
+                      if (g.to.equals(to)) r.add(g);
+                  }
+                  r.sort((x, y) -> Long.compare(x.created, y.created));
+                  return r;
+              }
+
+              Gift findGift(long id) {
+                  for (Gift g : gifts) {
+                      if (g.id == id) return g;
+                  }
+                  return null;
+              }
+
+              Msg findMsg(long id) {
+                  for (Msg m : msgs) {
+                      if (m.id == id) return m;
+                  }
+                  return null;
+              }
+
+              final Map<String, PD> players = new LinkedHashMap<>();
+              final List<Spark> sparks = new ArrayList<>();
+              final List<Inv> invites = new ArrayList<>();
+
+              private final FriendsPlugin pl;
+              private final File file;
+              private final File tmp;
+              private final ExecutorService io;
+              private final Object lock = new Object();
+              private volatile boolean dirty = false;
+
+              Store(FriendsPlugin pl, File file) {
+                  this.pl = pl;
+                  this.file = file;
+                  this.tmp = new File(file.getParentFile(), "data.yml.tmp");
+                  this.io = Executors.newSingleThreadExecutor(r -> {
+                      Thread t = new Thread(r, "EclipsFriends-IO");
+                      t.setDaemon(true);
+                      return t;
+                  });
+              }
+
+              void dirty() { dirty = true; }
+
+              void event(String type) {
+                  Ev e = new Ev();
+                  e.type = type;
+                  e.time = System.currentTimeMillis();
+                  events.add(e);
+                  dirty = true;
+              }
+
+              int countEvents(String type, long sinceMs) {
+                  int c = 0;
+                  for (Ev e : events) {
+                      if (e.type.equals(type) && e.time >= sinceMs) c++;
+                  }
+                  return c;
+              }
+
+              void pruneEvents(long olderThanMs) {
+                  if (events.removeIf(e -> e.time < olderThanMs)) dirty = true;
+              }
+
+              PD ensure(String key, String name) {
+                  PD d = players.get(key);
+                  if (d == null) {
+                      d = new PD();
+                      d.key = key;
+                      d.name = name == null ? key : name;
+                      players.put(key, d);
+                      dirty = true;
+                  } else if (name != null && !name.isEmpty() && !name.equals(d.name)) {
+                      d.name = name;
+                      dirty = true;
+                  }
+                  return d;
+              }
+
+              // ---------- чтение ----------
+
+              private static String s(Map<?, ?> m, String k) {
+                  Object o = m.get(k);
+                  return o == null ? "" : String.valueOf(o);
+              }
+
+              private static long n(Map<?, ?> m, String k, long def) {
+                  Object o = m.get(k);
+                  return (o instanceof Number) ? ((Number) o).longValue() : def;
+              }
+
+              private static List<String> strs(Map<?, ?> m, String k) {
+                  List<String> r = new ArrayList<>();
+                  Object o = m.get(k);
+                  if (o instanceof Collection) {
+                      for (Object x : (Collection<?>) o) {
+                          if (x != null) r.add(String.valueOf(x));
+                      }
+                  }
+                  return r;
+              }
+
+              private static List<Map<?, ?>> maps(Map<?, ?> m, String k) {
+                  List<Map<?, ?>> r = new ArrayList<>();
+                  Object o = m.get(k);
+                  if (o instanceof Collection) {
+                      for (Object x : (Collection<?>) o) {
+                          if (x instanceof Map) r.add((Map<?, ?>) x);
+                      }
+                  }
+                  return r;
+              }
+
+              void load() {
+                  try {
+                      if (!file.exists()) return;
+                      Config c = new Config(file, Config.YAML);
+                      Map<String, Object> all = c.getAll();
+                      for (Map<?, ?> m : maps(all, "players")) {
+                          PD d = new PD();
+                          d.key = s(m, "key");
+                          if (d.key.isEmpty()) continue;
+                          d.name = s(m, "name");
+                          d.ip = s(m, "ip");
+                          d.playSec = n(m, "play-seconds", 0);
+                          d.pending = n(m, "pending", 0);
+                          d.lastSeen = n(m, "last-seen", 0);
+                          d.msgDay = n(m, "msg-day", 0);
+                          d.msgCount = (int) n(m, "msg-count", 0);
+                          d.friends.addAll(strs(m, "friends"));
+                          d.notices.addAll(strs(m, "notices"));
+                          players.put(d.key, d);
+                      }
+                      for (Map<?, ?> m : maps(all, "sparks")) {
+                          Spark sp = new Spark();
+                          sp.a = s(m, "a");
+                          sp.b = s(m, "b");
+                          if (sp.a.isEmpty() || sp.b.isEmpty()) continue;
+                          sp.an = s(m, "a-name");
+                          sp.bn = s(m, "b-name");
+                          sp.streak = (int) n(m, "streak", 0);
+                          sp.start = n(m, "start", 0);
+                          sp.lastDone = n(m, "last-done", 0);
+                          sp.lastA = n(m, "last-a", -1);
+                          sp.lastB = n(m, "last-b", -1);
+                          sparks.add(sp);
+                      }
+                      for (Map<?, ?> m : maps(all, "events")) {
+                          Ev ev = new Ev();
+                          ev.type = s(m, "type");
+                          ev.time = n(m, "time", 0);
+                          if (!ev.type.isEmpty()) events.add(ev);
+                      }
+                      for (Map<?, ?> m : maps(all, "gifts")) {
+                          Gift g = new Gift();
+                          g.id = n(m, "id", 0);
+                          g.from = s(m, "from");
+                          g.fromName = s(m, "from-name");
+                          g.to = s(m, "to");
+                          g.toName = s(m, "to-name");
+                          g.anon = Boolean.parseBoolean(s(m, "anon"));
+                          g.returned = Boolean.parseBoolean(s(m, "returned"));
+                          g.created = n(m, "created", 0);
+                          g.items.addAll(strs(m, "items"));
+                          if (g.to.isEmpty()) continue;
+                          lastId = Math.max(lastId, g.id);
+                          gifts.add(g);
+                      }
+                      for (Map<?, ?> m : maps(all, "messages")) {
+                          Msg x = new Msg();
+                          x.id = n(m, "id", 0);
+                          x.type = s(m, "type");
+                          x.from = s(m, "from");
+                          x.fromName = s(m, "from-name");
+                          x.to = s(m, "to");
+                          x.toName = s(m, "to-name");
+                          x.text = s(m, "text");
+                          x.created = n(m, "created", 0);
+                          x.read = Boolean.parseBoolean(s(m, "read"));
+                          x.replied = Boolean.parseBoolean(s(m, "replied"));
+                          x.reported = Boolean.parseBoolean(s(m, "reported"));
+                          x.handled = Boolean.parseBoolean(s(m, "handled"));
+                          if (x.to.isEmpty()) continue;
+                          lastId = Math.max(lastId, x.id);
+                          msgs.add(x);
+                      }
+                      if (!all.containsKey("events")) {
+                          // первая загрузка после обновления: восстанавливаем «создан» для живых огоньков
+                          for (Spark sp : sparks) {
+                              Ev ev = new Ev();
+                              ev.type = "created";
+                              ev.time = sp.start * 86400000L;
+                              events.add(ev);
+                          }
+                          dirty = true;
+                      }
+                      for (Map<?, ?> m : maps(all, "invites")) {
+                          Inv iv = new Inv();
+                          iv.type = s(m, "type");
+                          iv.from = s(m, "from");
+                          iv.fromName = s(m, "from-name");
+                          iv.to = s(m, "to");
+                          iv.toName = s(m, "to-name");
+                          iv.created = n(m, "created", 0);
+                          if (iv.from.isEmpty() || iv.to.isEmpty()) continue;
+                          invites.add(iv);
+                      }
+                  } catch (Throwable t) {
+                      try {
+                          Files.copy(file.toPath(), new File(file.getParentFile(), "data.yml.broken").toPath(),
+                                  StandardCopyOption.REPLACE_EXISTING);
+                      } catch (Throwable ignored) {
+                      }
+                      pl.getLogger().warning("Не удалось прочитать data.yml: " + t);
+                  }
+              }
+
+              // ---------- запись ----------
+
+              private LinkedHashMap<String, Object> snapshot() {
+                  LinkedHashMap<String, Object> root = new LinkedHashMap<>();
+                  List<Object> ps = new ArrayList<>();
+                  for (PD d : players.values()) {
+                      LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+                      m.put("key", d.key);
+                      m.put("name", d.name);
+                      m.put("ip", d.ip);
+                      m.put("play-seconds", d.playSec);
+                      m.put("pending", d.pending);
+                      m.put("last-seen", d.lastSeen);
+                      m.put("msg-day", d.msgDay);
+                      m.put("msg-count", d.msgCount);
+                      m.put("friends", new ArrayList<>(d.friends));
+                      m.put("notices", new ArrayList<>(d.notices));
+                      ps.add(m);
+                  }
+                  root.put("players", ps);
+                  List<Object> ss = new ArrayList<>();
+                  for (Spark sp : sparks) {
+                      LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+                      m.put("a", sp.a);
+                      m.put("b", sp.b);
+                      m.put("a-name", sp.an);
+                      m.put("b-name", sp.bn);
+                      m.put("streak", sp.streak);
+                      m.put("start", sp.start);
+                      m.put("last-done", sp.lastDone);
+                      m.put("last-a", sp.lastA);
+                      m.put("last-b", sp.lastB);
+                      ss.add(m);
+                  }
+                  root.put("sparks", ss);
+                  List<Object> is = new ArrayList<>();
+                  for (Inv iv : invites) {
+                      LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+                      m.put("type", iv.type);
+                      m.put("from", iv.from);
+                      m.put("from-name", iv.fromName);
+                      m.put("to", iv.to);
+                      m.put("to-name", iv.toName);
+                      m.put("created", iv.created);
+                      is.add(m);
+                  }
+                  root.put("invites", is);
+                  List<Object> es = new ArrayList<>();
+                  for (Ev ev : events) {
+                      LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+                      m.put("type", ev.type);
+                      m.put("time", ev.time);
+                      es.add(m);
+                  }
+                  root.put("events", es);
+                  List<Object> gs = new ArrayList<>();
+                  for (Gift g : gifts) {
+                      LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+                      m.put("id", g.id);
+                      m.put("from", g.from);
+                      m.put("from-name", g.fromName);
+                      m.put("to", g.to);
+                      m.put("to-name", g.toName);
+                      m.put("anon", g.anon);
+                      m.put("returned", g.returned);
+                      m.put("created", g.created);
+                      m.put("items", new ArrayList<>(g.items));
+                      gs.add(m);
+                  }
+                  root.put("gifts", gs);
+                  List<Object> ms = new ArrayList<>();
+                  for (Msg x : msgs) {
+                      LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+                      m.put("id", x.id);
+                      m.put("type", x.type);
+                      m.put("from", x.from);
+                      m.put("from-name", x.fromName);
+                      m.put("to", x.to);
+                      m.put("to-name", x.toName);
+                      m.put("text", x.text);
+                      m.put("created", x.created);
+                      m.put("read", x.read);
+                      m.put("replied", x.replied);
+                      m.put("reported", x.reported);
+                      m.put("handled", x.handled);
+                      ms.add(m);
+                  }
+                  root.put("messages", ms);
+                  return root;
+              }
+
+              private void write(LinkedHashMap<String, Object> snap) {
+                  synchronized (lock) {
+                      try {
+                          File dir = file.getParentFile();
+                          if (dir != null) dir.mkdirs();
+                          if (tmp.exists()) tmp.delete();
+                          Config c = new Config(tmp, Config.YAML);
+                          c.setAll(snap);
+                          c.save();
+                          try {
+                              Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING,
+                                      StandardCopyOption.ATOMIC_MOVE);
+                          } catch (Throwable e) {
+                              Files.move(tmp.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING);
+                          }
+                      } catch (Throwable t) {
+                          dirty = true;
+                          pl.getLogger().warning("Не удалось сохранить data.yml: " + t);
+                      }
+                  }
+              }
+
+              /** Вызывается из главного потока: снимок данных делается сразу, запись идёт в фоне. */
+              void flush() {
+                  if (!dirty) return;
+                  dirty = false;
+                  final LinkedHashMap<String, Object> snap = snapshot();
+                  try {
+                      io.execute(() -> write(snap));
+                  } catch (Throwable t) {
+                      write(snap);
+                  }
+              }
+
+              /** При выключении сервера: дожидаемся фоновых записей и сохраняем остаток. */
+              void close() {
+                  try {
+                      io.shutdown();
+                      io.awaitTermination(10, TimeUnit.SECONDS);
+                  } catch (Throwable ignored) {
+                  }
+                  if (dirty) {
+                      dirty = false;
+                      write(snapshot());
+                  }
+              }
+          }
+          EOF_STORE
+          cat > src/main/java/ru/eclips/friends/Econ.java <<'EOF_ECON'
+          package ru.eclips.friends;
+
+          import cn.nukkit.Player;
+          import cn.nukkit.plugin.Plugin;
+
+          import java.lang.reflect.Method;
+
+          /** Мост к плагину TpCoins через рефлексию: если API не совпадёт, сработает запасной вариант. */
+          final class Econ {
+
+              private final FriendsPlugin pl;
+
+              Econ(FriendsPlugin pl) {
+                  this.pl = pl;
+              }
+
+              private Object eco() {
+                  try {
+                      Plugin p = pl.getServer().getPluginManager().getPlugin("TpCoins");
+                      if (p == null || !p.isEnabled()) return null;
+                      Method m = p.getClass().getMethod("getEconomy");
+                      m.setAccessible(true);
+                      return m.invoke(p);
+                  } catch (Throwable t) {
+                      return null;
+                  }
+              }
+
+              private static Object call(Object target, String name, Class<?>[] types, Object... args) throws Exception {
+                  Method m = target.getClass().getMethod(name, types);
+                  m.setAccessible(true);
+                  return m.invoke(target, args);
+              }
+
+              /** Есть ли у игрока счёт в TpCoins (то есть заходил ли он на сервер). */
+              boolean has(String key) {
+                  try {
+                      Object e = eco();
+                      if (e == null) return false;
+                      return Boolean.TRUE.equals(call(e, "hasAccount", new Class<?>[]{String.class}, key));
+                  } catch (Throwable t) {
+                      return false;
+                  }
+              }
+
+              /** Отображаемое имя игрока из TpCoins или null. */
+              String nameOf(String key) {
+                  try {
+                      Object e = eco();
+                      if (e == null) return null;
+                      Object r = call(e, "getName", new Class<?>[]{String.class}, key);
+                      return r == null ? null : String.valueOf(r);
+                  } catch (Throwable t) {
+                      return null;
+                  }
+              }
+
+              private long bal(Object e, String key) {
+                  try {
+                      Object r = call(e, "getBalance", new Class<?>[]{String.class}, key);
+                      return (r instanceof Number) ? ((Number) r).longValue() : -1;
+                  } catch (Throwable t) {
+                      return -1;
+                  }
+              }
+
+              /**
+               * Выдаёт монеты игроку. Возвращает сколько реально выдано (0 если баланс полон),
+               * либо -1 если выдать не получилось ни одним способом.
+               */
+              long pay(Player p, long want) {
+                  try {
+                      Object e = eco();
+                      if (e == null) return -1;
+                      String key = FriendsPlugin.key(p.getName());
+                      try {
+                          call(e, "ensureAccount", new Class<?>[]{Player.class}, p);
+                      } catch (Throwable ignored) {
+                      }
+                      long room = Long.MAX_VALUE;
+                      try {
+                          Object r = call(e, "getRoom", new Class<?>[]{String.class}, key);
+                          if (r instanceof Number) room = ((Number) r).longValue();
+                      } catch (Throwable ignored) {
+                      }
+                      long amt = Math.min(want, room);
+                      if (amt <= 0) return 0;
+
+                      // Вариант 1: прямой вызов deposit(String, long, String)
+                      try {
+                          long b0 = bal(e, key);
+                          Object r = call(e, "deposit", new Class<?>[]{String.class, long.class, String.class},
+                                  key, amt, "Огоньки");
+                          boolean ok = "OK".equals(String.valueOf(r));
+                          long b1 = bal(e, key);
+                          if (ok || (b0 >= 0 && b1 - b0 >= amt)) return amt;
+                      } catch (Throwable ignored) {
+                      }
+
+                      // Вариант 2: команда /givem от консоли с проверкой, что баланс вырос
+                      try {
+                          long b0 = bal(e, key);
+                          String nm = p.getName();
+                          String arg = nm.indexOf(' ') >= 0 ? "\"" + nm + "\"" : nm;
+                          pl.getServer().dispatchCommand(pl.getServer().getConsoleSender(), "givem " + arg + " " + amt);
+                          long b1 = bal(e, key);
+                          if (b0 >= 0 && b1 - b0 >= amt) return amt;
+                      } catch (Throwable ignored) {
+                      }
+                      return -1;
+                  } catch (Throwable t) {
+                      return -1;
+                  }
+              }
+
+              long balance(Player p) {
+                  try {
+                      Object e = eco();
+                      if (e == null) return -1;
+                      return bal(e, FriendsPlugin.key(p.getName()));
+                  } catch (Throwable t) {
+                      return -1;
+                  }
+              }
+          }
+          EOF_ECON
+          cat > src/main/java/ru/eclips/friends/GiftUi.java <<'EOF_GIFT'
+          package ru.eclips.friends;
+
+          import cn.nukkit.Player;
+          import cn.nukkit.block.Block;
+          import cn.nukkit.event.EventHandler;
+          import cn.nukkit.event.EventPriority;
+          import cn.nukkit.event.Listener;
+          import cn.nukkit.event.inventory.InventoryCloseEvent;
+          import cn.nukkit.event.inventory.InventoryTransactionEvent;
+          import cn.nukkit.event.player.PlayerQuitEvent;
+          import cn.nukkit.inventory.ContainerInventory;
+          import cn.nukkit.inventory.Inventory;
+          import cn.nukkit.inventory.InventoryHolder;
+          import cn.nukkit.inventory.InventoryType;
+          import cn.nukkit.inventory.transaction.action.InventoryAction;
+          import cn.nukkit.inventory.transaction.action.SlotChangeAction;
+          import cn.nukkit.item.Item;
+          import cn.nukkit.level.Level;
+          import cn.nukkit.math.Vector3;
+          import cn.nukkit.nbt.NBTIO;
+          import cn.nukkit.nbt.tag.CompoundTag;
+          import cn.nukkit.network.protocol.BlockEntityDataPacket;
+
+          import java.lang.reflect.Method;
+          import java.lang.reflect.Modifier;
+          import java.nio.ByteOrder;
+          import java.util.ArrayList;
+          import java.util.Arrays;
+          import java.util.Base64;
+          import java.util.HashMap;
+          import java.util.HashSet;
+          import java.util.List;
+          import java.util.Map;
+          import java.util.Set;
+          import java.util.UUID;
+          import java.util.concurrent.ConcurrentHashMap;
+
+          /**
+           * Виртуальные сундуки для подарков (по образцу TopShop: фейковый сундук пакетами).
+           * KIND_SEND: игрок кладёт предметы в слоты 0..N-1, нижний ряд: анонимность / отправить / отмена.
+           * KIND_MINE: список полученных подарков, клик по подарку забирает его.
+           */
+          final class GiftUi implements Listener {
+
+              static final int KIND_SEND = 0;
+              static final int KIND_MINE = 1;
+              static final int S_TOGGLE = 20;
+              static final int S_SEND = 22;
+              static final int S_CANCEL = 24;
+              static final int S_BACK = 22;
+              static final int S_ALL = 24;
+              static final int MAX_SHOWN = 20;
+
+              static final class Holder extends Vector3 implements InventoryHolder {
+                  Inventory inv;
+
+                  Holder(int x, int y, int z) {
+                      super(x, y, z);
+                  }
+
+                  @Override
+                  public Inventory getInventory() {
+                      return inv;
+                  }
+              }
+
+              static final class Menu extends ContainerInventory {
+                  Menu(Holder holder) {
+                      super(holder, InventoryType.CHEST);
+                      holder.inv = this;
+                  }
+              }
+
+              static final class Session {
+                  final Player player;
+                  final Level level;
+                  final int x;
+                  final int y;
+                  final int z;
+                  final int kind;
+                  final String title;
+                  final long created = System.currentTimeMillis();
+                  Menu inv;
+                  boolean open;
+                  long last;
+                  String friend = "";
+                  String friendName = "";
+                  boolean anon;
+                  Map<Integer, String> actions = new HashMap<>();
+
+                  Session(Player player, Level level, int x, int y, int z, int kind, String title) {
+                      this.player = player;
+                      this.level = level;
+                      this.x = x;
+                      this.y = y;
+                      this.z = z;
+                      this.kind = kind;
+                      this.title = title;
+                  }
+              }
+
+              private final FriendsPlugin pl;
+              private final Map<UUID, Session> sessions = new ConcurrentHashMap<>();
+              private final Set<Integer> banned = new HashSet<>();
+              int slots = 9;
+
+              GiftUi(FriendsPlugin pl) {
+                  this.pl = pl;
+              }
+
+              void reload() {
+                  slots = Math.max(1, Math.min(9, pl.getConfig().getInt("gifts.max-slots", 9)));
+                  banned.clear();
+                  List<String> names;
+                  try {
+                      names = pl.getConfig().getStringList("gifts.banned-items");
+                  } catch (Throwable t) {
+                      names = new ArrayList<>();
+                  }
+                  if (names != null) {
+                      for (String n : names) {
+                          Item it = safeItem(n);
+                          if (it != null) banned.add(it.getId());
+                      }
+                  }
+              }
+
+              boolean isBanned(Item it) {
+                  return it != null && !it.isNull() && banned.contains(it.getId());
+              }
+
+              // ---------------------------------------------------------------- сериализация предметов
+
+              private static Object invokeStatic(Class<?> c, String name, Object... args) throws Exception {
+                  Exception last = null;
+                  for (Method m : c.getMethods()) {
+                      if (!m.getName().equals(name) || m.getParameterCount() != args.length
+                              || !Modifier.isStatic(m.getModifiers())) {
+                          continue;
+                      }
+                      try {
+                          return m.invoke(null, args);
+                      } catch (Exception e) {
+                          last = e;
+                      }
+                  }
+                  throw last != null ? last : new NoSuchMethodException(name);
+              }
+
+              /** Предмет в строку для хранения на диске. null, если упаковать не удалось. */
+              static String ser(Item it) {
+                  try {
+                      Object tag = invokeStatic(NBTIO.class, "putItemHelper", it);
+                      byte[] b = NBTIO.write((CompoundTag) tag, ByteOrder.LITTLE_ENDIAN, true);
+                      return "N:" + Base64.getEncoder().encodeToString(b);
+                  } catch (Throwable ignored) {
+                  }
+                  try {
+                      byte[] nbt = it.getCompoundTag();
+                      String n = nbt == null ? "" : Base64.getEncoder().encodeToString(nbt);
+                      return "L:" + it.getId() + ":" + it.getDamage() + ":" + it.getCount() + ":" + n;
+                  } catch (Throwable ignored) {
+                  }
+                  return null;
+              }
+
+              /** Строка обратно в предмет. null, если не получилось. */
+              static Item de(String s) {
+                  try {
+                      if (s.startsWith("N:")) {
+                          byte[] b = Base64.getDecoder().decode(s.substring(2));
+                          Object tag = invokeStatic(NBTIO.class, "read", b, ByteOrder.LITTLE_ENDIAN, true);
+                          Object it = invokeStatic(NBTIO.class, "getItemHelper", tag);
+                          return (Item) it;
+                      }
+                      if (s.startsWith("L:")) {
+                          String[] p = s.split(":", 5);
+                          int id = Integer.parseInt(p[1]);
+                          int dmg = Integer.parseInt(p[2]);
+                          int cnt = Integer.parseInt(p[3]);
+                          Item it = (Item) invokeStatic(Item.class, "get", id, dmg, cnt);
+                          if (p.length > 4 && !p[4].isEmpty()) it.setCompoundTag(Base64.getDecoder().decode(p[4]));
+                          return it;
+                      }
+                  } catch (Throwable ignored) {
+                  }
+                  return null;
+              }
+
+              private static Item safeItem(String id) {
+                  try {
+                      Item it = Item.fromString(id);
+                      return it == null || it.getId() == 0 ? null : it;
+                  } catch (Exception e) {
+                      return null;
+                  }
+              }
+
+              private static Item mk(String... ids) {
+                  for (String id : ids) {
+                      Item it = safeItem(id);
+                      if (it != null) return it;
+                  }
+                  return Item.get(Item.PAPER);
+              }
+
+              // ---------------------------------------------------------------- открытие
+
+              void openSend(Player p, String friendKey, String friendName) {
+                  Session s = prepare(p, KIND_SEND, "§lПодарок: " + friendName);
+                  if (s == null) return;
+                  s.friend = friendKey;
+                  s.friendName = friendName;
+                  s.anon = pl.giftDefaultAnon;
+                  start(s);
+              }
+
+              void openMine(Player p) {
+                  Session s = prepare(p, KIND_MINE, "§lМои подарки");
+                  if (s == null) return;
+                  start(s);
+              }
+
+              private Session prepare(Player p, int kind, String title) {
+                  if (!p.isOnline()) return null;
+                  Session old = sessions.get(p.getUniqueId());
+                  if (old != null) end(old);
+                  Level lv = p.getLevel();
+                  int x = p.getFloorX();
+                  int z = p.getFloorZ();
+                  int y = p.getFloorY() + 3;
+                  if (y > 250) y = Math.max(1, p.getFloorY() - 3);
+                  return new Session(p, lv, x, y, z, kind, title);
+              }
+
+              private void start(final Session s) {
+                  Player p = s.player;
+                  sessions.put(p.getUniqueId(), s);
+                  try {
+                      sendFake(p, s.level, s.x, s.y, s.z, s.title);
+                  } catch (Exception e) {
+                      sessions.remove(p.getUniqueId(), s);
+                      pl.getLogger().warning("Не удалось подготовить сундук подарков: " + e);
+                      return;
+                  }
+                  pl.later(10, () -> finishOpen(s));
+              }
+
+              private void finishOpen(Session s) {
+                  Player p = s.player;
+                  if (sessions.get(p.getUniqueId()) != s) return;
+                  if (!p.isOnline() || p.getLevel() != s.level) {
+                      cleanup(s);
+                      return;
+                  }
+                  try {
+                      Menu m = new Menu(new Holder(s.x, s.y, s.z));
+                      s.inv = m;
+                      render(s);
+                      int wid = p.addWindow(m);
+                      if (wid < 0) {
+                          cleanup(s);
+                          return;
+                      }
+                      s.open = true;
+                  } catch (Exception e) {
+                      pl.getLogger().warning("Не удалось открыть сундук подарков: " + e);
+                      cleanup(s);
+                  }
+              }
+
+              private void sendFake(Player p, Level lv, int x, int y, int z, String title) throws Exception {
+                  Block b = Block.get(Block.CHEST, 2);
+                  b.x = x;
+                  b.y = y;
+                  b.z = z;
+                  b.level = lv;
+                  lv.sendBlocks(new Player[]{p}, new Vector3[]{b});
+
+                  CompoundTag tag = new CompoundTag()
+                          .putString("id", "Chest")
+                          .putInt("x", x)
+                          .putInt("y", y)
+                          .putInt("z", z)
+                          .putString("CustomName", title);
+                  BlockEntityDataPacket pk = new BlockEntityDataPacket();
+                  pk.x = x;
+                  pk.y = y;
+                  pk.z = z;
+                  pk.namedTag = NBTIO.write(tag, ByteOrder.LITTLE_ENDIAN, true);
+                  p.dataPacket(pk);
+              }
+
+              private void restoreBlock(Session s) {
+                  try {
+                      if (s.player.isOnline() && s.player.getLevel() == s.level) {
+                          s.level.sendBlocks(new Player[]{s.player}, new Vector3[]{new Vector3(s.x, s.y, s.z)});
+                      }
+                  } catch (Exception ignored) {
+                  }
+              }
+
+              private void cleanup(Session s) {
+                  if (!sessions.remove(s.player.getUniqueId(), s)) return;
+                  s.open = false;
+                  restoreBlock(s);
+              }
+
+              private void closeChest(Session s) {
+                  try {
+                      if (s.inv != null && s.player.isOnline()) s.player.removeWindow(s.inv);
+                  } catch (Exception ignored) {
+                  }
+                  cleanup(s);
+              }
+
+              /** Вернуть игроку то, что он положил в сундук, и закрыть сундук. */
+              private void end(Session s) {
+                  returnItems(s);
+                  closeChest(s);
+              }
+
+              private void give(Player p, Item it) {
+                  try {
+                      Item[] left = p.getInventory().addItem(it);
+                      if (left != null) {
+                          for (Item l : left) {
+                              if (l != null && !l.isNull()) p.getLevel().dropItem(p, l);
+                          }
+                      }
+                  } catch (Throwable ignored) {
+                  }
+              }
+
+              private void returnItems(Session s) {
+                  if (s.kind != KIND_SEND || s.inv == null) return;
+                  for (int i = 0; i < slots; i++) {
+                      try {
+                          Item it = s.inv.getItem(i);
+                          if (it == null || it.isNull()) continue;
+                          s.inv.setItem(i, Item.get(0));
+                          give(s.player, it);
+                      } catch (Throwable ignored) {
+                      }
+                  }
+              }
+
+              void closeAll() {
+                  for (Session s : new ArrayList<>(sessions.values())) {
+                      try {
+                          returnItems(s);
+                          cleanup(s);
+                      } catch (Throwable ignored) {
+                      }
+                  }
+              }
+
+              /** Раз в секунду: если окно закрылось без события (смерть, телепорт), возвращаем вещи. */
+              void sweep() {
+                  for (Session s : new ArrayList<>(sessions.values())) {
+                      try {
+                          if (!s.open || s.inv == null) continue;
+                          if (!s.player.isOnline()) {
+                              returnItems(s);
+                              cleanup(s);
+                          } else if (s.player.getWindowId(s.inv) < 0) {
+                              returnItems(s);
+                              cleanup(s);
+                          }
+                      } catch (Throwable ignored) {
+                      }
+                  }
+              }
+
+              // ---------------------------------------------------------------- события
+
+              @EventHandler
+              public void onClose(InventoryCloseEvent e) {
+                  Session s = sessions.get(e.getPlayer().getUniqueId());
+                  if (s != null && s.inv != null && s.inv == e.getInventory()) {
+                      returnItems(s);
+                      cleanup(s);
+                  }
+              }
+
+              @EventHandler
+              public void onQuit(PlayerQuitEvent e) {
+                  Session s = sessions.remove(e.getPlayer().getUniqueId());
+                  if (s != null) {
+                      try {
+                          returnItems(s);
+                      } catch (Throwable ignored) {
+                      }
+                  }
+              }
+
+              @EventHandler(priority = EventPriority.HIGHEST)
+              public void onTransaction(InventoryTransactionEvent e) {
+                  Player p = e.getTransaction().getSource();
+                  final Session s = sessions.get(p.getUniqueId());
+                  if (s == null || s.inv == null) return;
+                  boolean ours = false;
+                  boolean bad = false;
+                  boolean banHit = false;
+                  int slot = -1;
+                  for (InventoryAction a : e.getTransaction().getActions()) {
+                      if (a instanceof SlotChangeAction) {
+                          SlotChangeAction sa = (SlotChangeAction) a;
+                          if (sa.getInventory() == s.inv) {
+                              ours = true;
+                              int sl = sa.getSlot();
+                              if (s.kind == KIND_SEND && sl >= 0 && sl < slots) {
+                                  if (isBanned(sa.getTargetItem())) {
+                                      bad = true;
+                                      banHit = true;
+                                  }
+                              } else {
+                                  bad = true;
+                                  if (slot < 0) slot = sl;
+                              }
+                          }
+                      }
+                  }
+                  if (!ours) return;
+                  if (!bad) return; // свободные слоты подарка: перекладывать можно
+                  e.setCancelled(true);
+                  if (banHit) {
+                      p.sendMessage(FriendsPlugin.PFX + "§cЭтот предмет нельзя дарить.");
+                  }
+                  final int clicked = slot;
+                  pl.later(1, () -> {
+                      handleClick(s, clicked);
+                      resync(s);
+                  });
+              }
+
+              private void resync(Session s) {
+                  try {
+                      if (sessions.get(s.player.getUniqueId()) == s && s.inv != null && s.player.isOnline()) {
+                          s.inv.sendContents(s.player);
+                          s.player.getInventory().sendContents(s.player);
+                      }
+                  } catch (Exception ignored) {
+                  }
+              }
+
+              // ---------------------------------------------------------------- отрисовка
+
+              private Item filler() {
+                  Item it = mk("gray_stained_glass_pane", "stained_glass_pane", "glass_pane", "iron_bars");
+                  it.setCustomName("§r ");
+                  return it;
+              }
+
+              private Item toggleItem(Session s) {
+                  Item it = mk("name_tag", "paper");
+                  it.setCustomName("§l§eАнонимно: " + (s.anon ? "§aДА" : "§cНЕТ"));
+                  it.setLore(new String[]{
+                          "§7Нажми, чтобы переключить",
+                          "§7Получатель увидит: §f" + (s.anon ? "Аноним" : s.player.getName())});
+                  return it;
+              }
+
+              private void render(Session s) {
+                  if (s.inv == null) return;
+                  try {
+                      if (s.kind == KIND_SEND) renderSend(s);
+                      else renderMine(s);
+                  } catch (Exception e) {
+                      pl.getLogger().warning("Ошибка отрисовки сундука подарков: " + e);
+                  }
+              }
+
+              private void renderSend(Session s) {
+                  Item f = filler();
+                  for (int i = slots; i < 27; i++) {
+                      if (i == S_TOGGLE || i == S_SEND || i == S_CANCEL) continue;
+                      s.inv.setItem(i, f.clone());
+                  }
+                  s.inv.setItem(S_TOGGLE, toggleItem(s));
+                  Item send = mk("emerald", "gold_ingot");
+                  send.setCustomName("§l§aОтправить подарок");
+                  send.setLore(new String[]{"§7Кому: §f" + s.friendName,
+                          "§7Положи предметы в верхние слоты (до " + slots + ")"});
+                  s.inv.setItem(S_SEND, send);
+                  Item cancel = mk("barrier", "arrow");
+                  cancel.setCustomName("§l§cОтмена");
+                  cancel.setLore(new String[]{"§7Предметы вернутся тебе"});
+                  s.inv.setItem(S_CANCEL, cancel);
+                  Map<Integer, String> act = new HashMap<>();
+                  act.put(S_TOGGLE, "toggle");
+                  act.put(S_SEND, "send");
+                  act.put(S_CANCEL, "cancel");
+                  s.actions = act;
+              }
+
+              private void renderMine(Session s) {
+                  Map<Integer, Item> m = new HashMap<>();
+                  Map<Integer, String> act = new HashMap<>();
+                  String me = FriendsPlugin.key(s.player.getName());
+                  List<Store.Gift> list = pl.st.giftsFor(me);
+                  for (int i = 0; i < list.size() && i < MAX_SHOWN; i++) {
+                      Store.Gift g = list.get(i);
+                      m.put(i, icon(g));
+                      act.put(i, "g:" + g.id);
+                  }
+                  Item f = filler();
+                  for (int i = 0; i < 27; i++) {
+                      if (!m.containsKey(i) && i != S_BACK && i != S_ALL) m.put(i, f.clone());
+                  }
+                  Item back = mk("barrier", "arrow");
+                  back.setCustomName("§l§cНазад");
+                  m.put(S_BACK, back);
+                  act.put(S_BACK, "back");
+                  Item all = mk("chest", "paper");
+                  all.setCustomName("§l§aЗабрать всё");
+                  all.setLore(new String[]{"§7Подарков: §f" + list.size()});
+                  m.put(S_ALL, all);
+                  act.put(S_ALL, "all");
+                  s.actions = act;
+                  s.inv.setContents(m);
+              }
+
+              private Item icon(Store.Gift g) {
+                  Item first = null;
+                  List<String> names = new ArrayList<>();
+                  for (String z : g.items) {
+                      Item it = de(z);
+                      if (it == null) continue;
+                      if (first == null) first = it;
+                      if (names.size() < 5) names.add("§7• §f" + it.getName() + " §7x" + it.getCount());
+                  }
+                  Item show = first != null ? first.clone() : Item.get(Item.PAPER);
+                  List<String> lore = new ArrayList<>();
+                  try {
+                      String[] old = show.getLore();
+                      if (old != null) lore.addAll(Arrays.asList(old));
+                  } catch (Throwable ignored) {
+                  }
+                  String from = g.from.isEmpty() ? "Возврат неполученного подарка" : (g.anon ? "Аноним" : g.fromName);
+                  lore.add("§r");
+                  lore.add("§6§lОт: §r§f" + from);
+                  lore.add("§7Дата: " + pl.dt(g.created));
+                  lore.add("§7Предметов в подарке: §f" + g.items.size());
+                  lore.addAll(names);
+                  lore.add("§aНажми, чтобы забрать");
+                  show.setLore(lore.toArray(new String[0]));
+                  return show;
+              }
+
+              // ---------------------------------------------------------------- клики
+
+              private void handleClick(Session s, int slot) {
+                  if (sessions.get(s.player.getUniqueId()) != s || !s.open || slot < 0) return;
+                  String a = s.actions.get(slot);
+                  if (a == null) return;
+                  long now = System.currentTimeMillis();
+                  if (now - s.last < 200) return;
+                  s.last = now;
+                  final Player p = s.player;
+                  try {
+                      if (s.kind == KIND_SEND) {
+                          if (a.equals("toggle")) {
+                              s.anon = !s.anon;
+                              s.inv.setItem(S_TOGGLE, toggleItem(s));
+                          } else if (a.equals("send")) {
+                              trySend(s);
+                          } else if (a.equals("cancel")) {
+                              end(s);
+                              pl.later(6, () -> pl.menuGifts(p));
+                          }
+                          return;
+                      }
+                      if (a.startsWith("g:")) {
+                          long id = Long.parseLong(a.substring(2));
+                          Store.Gift g = pl.st.findGift(id);
+                          if (g != null && g.to.equals(FriendsPlugin.key(p.getName()))) {
+                              say(p, claim(p, g));
+                          }
+                          render(s);
+                      } else if (a.equals("all")) {
+                          String me = FriendsPlugin.key(p.getName());
+                          List<Store.Gift> list = pl.st.giftsFor(me);
+                          if (list.isEmpty()) {
+                              say(p, "Подарков нет.");
+                          }
+                          for (Store.Gift g : list) {
+                              say(p, claim(p, g));
+                          }
+                          render(s);
+                      } else if (a.equals("back")) {
+                          closeChest(s);
+                          pl.later(6, () -> pl.menuGifts(p));
+                      }
+                  } catch (Throwable ex) {
+                      pl.getLogger().warning("Ошибка клика в сундуке подарков: " + ex);
+                  }
+              }
+
+              private void say(Player p, String text) {
+                  p.sendMessage(FriendsPlugin.PFX + text);
+                  try {
+                      p.sendTip(text);
+                  } catch (Throwable ignored) {
+                  }
+              }
+
+              /** Забирает подарок в инвентарь. Что не влезло, остаётся в подарке. */
+              String claim(Player p, Store.Gift g) {
+                  List<String> left = new ArrayList<>();
+                  boolean full = false;
+                  for (String z : g.items) {
+                      if (full) {
+                          left.add(z);
+                          continue;
+                      }
+                      Item it = de(z);
+                      if (it == null) {
+                          left.add(z);
+                          continue;
+                      }
+                      Item[] r = p.getInventory().addItem(it);
+                      if (r != null && r.length > 0 && r[0] != null && !r[0].isNull()) {
+                          String ls = ser(r[0]);
+                          left.add(ls == null ? z : ls);
+                          full = true;
+                      }
+                  }
+                  g.items.clear();
+                  g.items.addAll(left);
+                  String who = g.from.isEmpty() ? "возврат" : (g.anon ? "от Анонима" : "от " + g.fromName);
+                  if (left.isEmpty()) {
+                      pl.st.gifts.remove(g);
+                      pl.st.dirty();
+                      pl.st.flush();
+                      if (!g.from.isEmpty()) {
+                          pl.notifyPlayer(g.from, "§a" + p.getName() + " §rзабрал твой подарок.");
+                      }
+                      return "Подарок (" + who + ") получен!";
+                  }
+                  pl.st.dirty();
+                  pl.st.flush();
+                  return "В инвентаре не хватило места. Остаток подарка (" + who + ") ждёт в сундуке.";
+              }
+
+              private void trySend(Session s) {
+                  Player p = s.player;
+                  String me = FriendsPlugin.key(p.getName());
+                  Store.PD my = pl.st.ensure(me, p.getName());
+                  Store.PD to = pl.st.players.get(s.friend);
+                  if (to == null || !my.friends.contains(s.friend)) {
+                      say(p, "Вы больше не друзья, подарок отменён.");
+                      end(s);
+                      pl.later(6, () -> pl.menuGifts(p));
+                      return;
+                  }
+                  if (pl.st.giftsFor(s.friend).size() >= pl.giftMaxUnclaimed) {
+                      say(p, to.name + " не может принять ещё подарки: у него слишком много неполученных.");
+                      return;
+                  }
+                  List<String> packed = new ArrayList<>();
+                  List<Integer> used = new ArrayList<>();
+                  for (int i = 0; i < slots; i++) {
+                      Item it = s.inv.getItem(i);
+                      if (it == null || it.isNull()) continue;
+                      if (isBanned(it)) {
+                          say(p, "Предмет «" + it.getName() + "» нельзя дарить. Убери его из сундука.");
+                          return;
+                      }
+                      String z = ser(it);
+                      if (z == null) {
+                          say(p, "Не удалось упаковать «" + it.getName() + "». Убери его из сундука.");
+                          return;
+                      }
+                      packed.add(z);
+                      used.add(i);
+                  }
+                  if (packed.isEmpty()) {
+                      say(p, "Положи в сундук хотя бы один предмет.");
+                      return;
+                  }
+                  Store.Gift g = new Store.Gift();
+                  g.id = pl.st.newId();
+                  g.from = me;
+                  g.fromName = p.getName();
+                  g.to = s.friend;
+                  g.toName = to.name;
+                  g.anon = s.anon;
+                  g.created = System.currentTimeMillis();
+                  g.items.addAll(packed);
+                  pl.st.gifts.add(g);
+                  pl.st.event("gift");
+                  for (int i : used) s.inv.setItem(i, Item.get(0));
+                  pl.st.dirty();
+                  pl.st.flush();
+                  pl.getLogger().info("[ПОДАРОК] " + p.getName() + " -> " + to.name + (g.anon ? " (анонимно)" : "")
+                          + ", предметов: " + packed.size());
+                  pl.notifyPlayer(s.friend, g.anon
+                          ? "§aТебе пришёл анонимный подарок! §rОткрой §a/friend §r→ «Подарки» → «Мои подарки»."
+                          : "§aТебе подарок от " + p.getName() + "! §rОткрой §a/friend §r→ «Подарки» → «Мои подарки».");
+                  final String done = "Подарок отправлен игроку " + to.name + (g.anon ? " анонимно." : ".");
+                  closeChest(s);
+                  pl.later(6, () -> pl.res(p, "Подарок", done, "gifts"));
+              }
+          }
+          EOF_GIFT
+          cat > src/main/java/ru/eclips/friends/Glow.java <<'EOF_GLOW'
+          package ru.eclips.friends;
+
+          import cn.nukkit.Player;
+          import cn.nukkit.event.EventHandler;
+          import cn.nukkit.event.Listener;
+          import cn.nukkit.event.player.PlayerQuitEvent;
+          import cn.nukkit.level.Level;
+          import cn.nukkit.math.Vector3;
+          import cn.nukkit.plugin.Plugin;
+
+          import java.lang.reflect.Method;
+          import java.util.ArrayList;
+          import java.util.HashMap;
+          import java.util.HashSet;
+          import java.util.Iterator;
+          import java.util.List;
+          import java.util.Map;
+          import java.util.Set;
+          import java.util.UUID;
+
+          /**
+           * Подсветка невидимых друзей: зелёные частицы и зелёный ник над головой,
+           * которые видят только друзья невидимого игрока. Всё отправляется пакетами конкретным зрителям.
+           * Частицы и плавающий текст создаются через рефлексию: если API ядра не совпадёт,
+           * соответствующая часть тихо отключится, остальное продолжит работать.
+           */
+          final class Glow implements Listener {
+
+              static final String HIDE_PERM = "eclipsfriends.invis.hide";
+              private static final int EFFECT_INVISIBILITY = 14;
+              private static final int PARTICLE_HAPPY_VILLAGER = 20;
+
+              static final class Hl {
+                  UUID target;
+                  Player viewer;
+                  Level level;
+                  Object text;
+                  double x;
+                  double y;
+                  double z;
+              }
+
+              private final FriendsPlugin pl;
+              private final Map<String, Hl> map = new HashMap<>();
+              private final List<Object[]> ext = new ArrayList<>();
+              private final Set<String> disabledWorlds = new HashSet<>();
+              boolean enabled = true;
+              boolean particles = true;
+              boolean nameTag = true;
+              int interval = 5;
+              private double radius2 = 32 * 32;
+              private String color = "§a";
+              private boolean particleBroken = false;
+              private boolean textBroken = false;
+              private int phase = 0;
+
+              Glow(FriendsPlugin pl) {
+                  this.pl = pl;
+              }
+
+              void reload() {
+                  enabled = pl.getConfig().getBoolean("invisibility.enabled", true);
+                  particles = pl.getConfig().getBoolean("invisibility.particles", true);
+                  nameTag = pl.getConfig().getBoolean("invisibility.name-tag", true);
+                  interval = Math.max(2, pl.getConfig().getInt("invisibility.interval-ticks", 5));
+                  int r = Math.max(4, pl.getConfig().getInt("invisibility.radius", 32));
+                  radius2 = (double) r * r;
+                  color = pl.getConfig().getString("invisibility.name-color", "§a");
+                  disabledWorlds.clear();
+                  try {
+                      List<String> l = pl.getConfig().getStringList("invisibility.disabled-worlds");
+                      if (l != null) {
+                          for (String w : l) disabledWorlds.add(w.trim().toLowerCase());
+                      }
+                  } catch (Throwable ignored) {
+                  }
+              }
+
+              // ---------------------------------------------------------------- рефлексия
+
+              private void send(Level lv, Object particle, Player viewer) throws Exception {
+                  for (Method m : lv.getClass().getMethods()) {
+                      if (!m.getName().equals("addParticle") || m.getParameterCount() != 2) continue;
+                      Class<?>[] t = m.getParameterTypes();
+                      if (t[1] == Player[].class && t[0].isInstance(particle)) {
+                          m.invoke(lv, particle, new Player[]{viewer});
+                          return;
+                      }
+                  }
+                  throw new NoSuchMethodException("Level.addParticle(Particle, Player[])");
+              }
+
+              private Object newGeneric(double x, double y, double z) throws Exception {
+                  Class<?> c = Class.forName("cn.nukkit.level.particle.GenericParticle");
+                  return c.getConstructor(Vector3.class, int.class).newInstance(new Vector3(x, y, z), PARTICLE_HAPPY_VILLAGER);
+              }
+
+              private Object newText(double x, double y, double z, String title) throws Exception {
+                  Class<?> c = Class.forName("cn.nukkit.level.particle.FloatingTextParticle");
+                  try {
+                      return c.getConstructor(Vector3.class, String.class).newInstance(new Vector3(x, y, z), title);
+                  } catch (NoSuchMethodException e) {
+                      return c.getConstructor(Vector3.class, String.class, String.class)
+                              .newInstance(new Vector3(x, y, z), title, "");
+                  }
+              }
+
+              private void hideText(Object text) {
+                  try {
+                      Method m = text.getClass().getMethod("setInvisible", boolean.class);
+                      m.invoke(text, true);
+                  } catch (Throwable e) {
+                      try {
+                          text.getClass().getMethod("setInvisible").invoke(text);
+                      } catch (Throwable ignored) {
+                      }
+                  }
+              }
+
+              /** Убирает у зрителя плавающий ник. */
+              private void clear(Hl h) {
+                  if (h.text == null) return;
+                  try {
+                      if (h.viewer != null && h.viewer.isOnline() && h.level != null) {
+                          hideText(h.text);
+                          send(h.level, h.text, h.viewer);
+                      }
+                  } catch (Throwable ignored) {
+                  }
+                  h.text = null;
+              }
+
+              // ---------------------------------------------------------------- исключения
+
+              /** Ищет в Duel и StaffCmds методы вида isInDuel(Player) / isSp(Player), если они есть. */
+              private void refreshExternal() {
+                  ext.clear();
+                  String[][] plugins = {{"Duel", "Duels", "EclipsDuel"}, {"StaffCmds"}};
+                  String[][] methods = {
+                          {"isInDuel", "inDuel", "isDueling", "isDuel", "isInArena"},
+                          {"isSp", "isInSp", "inSp", "isSpectating", "isStaffMode", "isSpMode"}};
+                  for (int i = 0; i < plugins.length; i++) {
+                      for (String pn : plugins[i]) {
+                          try {
+                              Plugin pg = pl.getServer().getPluginManager().getPlugin(pn);
+                              if (pg == null) continue;
+                              for (Method m : pg.getClass().getMethods()) {
+                                  if (m.getParameterCount() != 1 || m.getReturnType() != boolean.class) continue;
+                                  for (String mn : methods[i]) {
+                                      if (m.getName().equalsIgnoreCase(mn)) ext.add(new Object[]{pg, m});
+                                  }
+                              }
+                          } catch (Throwable ignored) {
+                          }
+                      }
+                  }
+              }
+
+              private boolean external(Player p) {
+                  for (Object[] e : ext) {
+                      try {
+                          Method m = (Method) e[1];
+                          Class<?> t = m.getParameterTypes()[0];
+                          Object arg = t.isInstance(p) ? p : (t == String.class ? p.getName() : null);
+                          if (arg == null) continue;
+                          if (Boolean.TRUE.equals(m.invoke(e[0], arg))) return true;
+                      } catch (Throwable ignored) {
+                      }
+                  }
+                  return false;
+              }
+
+              private boolean worldOff(Player p) {
+                  try {
+                      Level l = p.getLevel();
+                      return l != null && disabledWorlds.contains(l.getName().trim().toLowerCase());
+                  } catch (Throwable t) {
+                      return false;
+                  }
+              }
+
+              /** Подсвечивать ли этого игрока: он в невидимости, не модератор в /sp и не в дуэли. */
+              private boolean revealed(Player t) {
+                  if (!t.isOnline() || !t.hasEffect(EFFECT_INVISIBILITY)) return false;
+                  if (t.isSpectator() || t.hasPermission(HIDE_PERM)) return false;
+                  if (worldOff(t) || external(t)) return false;
+                  return true;
+              }
+
+              private boolean viewerOk(Player t, Player v) {
+                  if (!v.isOnline() || v.isSpectator()) return false;
+                  if (v.getLevel() != t.getLevel()) return false;
+                  if (t.distanceSquared(v) > radius2) return false;
+                  return !external(v);
+              }
+
+              // ---------------------------------------------------------------- цикл
+
+              void tick() {
+                  if (!enabled) return;
+                  phase++;
+                  if (phase % 40 == 1) refreshExternal();
+                  Set<String> active = new HashSet<>();
+                  for (Player t : pl.getServer().getOnlinePlayers().values()) {
+                      try {
+                          if (!revealed(t)) continue;
+                          Store.PD d = pl.st.players.get(FriendsPlugin.key(t.getName()));
+                          if (d == null || d.friends.isEmpty()) continue;
+                          for (String fk : d.friends) {
+                              Player v = pl.online(fk);
+                              if (v == null || v == t) continue;
+                              if (!viewerOk(t, v)) continue;
+                              String id = t.getUniqueId() + ">" + v.getUniqueId();
+                              active.add(id);
+                              show(id, t, v);
+                          }
+                      } catch (Throwable ignored) {
+                      }
+                  }
+                  Iterator<Map.Entry<String, Hl>> it = map.entrySet().iterator();
+                  while (it.hasNext()) {
+                      Map.Entry<String, Hl> e = it.next();
+                      if (!active.contains(e.getKey())) {
+                          clear(e.getValue());
+                          it.remove();
+                      }
+                  }
+              }
+
+              private void show(String id, Player t, Player v) {
+                  Level lv = t.getLevel();
+                  double x = t.x;
+                  double y = t.y;
+                  double z = t.z;
+                  if (particles && !particleBroken) {
+                      try {
+                          for (int i = 0; i < 6; i++) {
+                              double ang = phase * 0.6 + i * Math.PI / 3.0;
+                              double px = x + Math.cos(ang) * 0.7;
+                              double pz = z + Math.sin(ang) * 0.7;
+                              double py = y + 0.2 + (i % 3) * 0.6;
+                              send(lv, newGeneric(px, py, pz), v);
+                          }
+                      } catch (Throwable e) {
+                          particleBroken = true;
+                          pl.getLogger().warning("Частицы подсветки недоступны в этом ядре, отключены: " + e);
+                      }
+                  }
+                  if (nameTag && !textBroken) {
+                      try {
+                          Hl h = map.get(id);
+                          if (h == null) {
+                              h = new Hl();
+                              h.target = t.getUniqueId();
+                              h.viewer = v;
+                              map.put(id, h);
+                          }
+                          double dx = x - h.x;
+                          double dy = y - h.y;
+                          double dz = z - h.z;
+                          boolean moved = dx * dx + dy * dy + dz * dz > 0.12;
+                          if (h.text == null || moved || h.level != lv) {
+                              if (h.text != null) {
+                                  hideText(h.text);
+                                  send(h.level, h.text, v);
+                              }
+                              Object txt = newText(x, y + 2.3, z, color + t.getName());
+                              send(lv, txt, v);
+                              h.text = txt;
+                              h.level = lv;
+                              h.x = x;
+                              h.y = y;
+                              h.z = z;
+                          }
+                      } catch (Throwable e) {
+                          textBroken = true;
+                          pl.getLogger().warning("Ник над головой недоступен в этом ядре, остаются только частицы: " + e);
+                      }
+                  }
+              }
+
+              void closeAll() {
+                  for (Hl h : map.values()) clear(h);
+                  map.clear();
+              }
+
+              @EventHandler
+              public void onQuit(PlayerQuitEvent e) {
+                  try {
+                      Player p = e.getPlayer();
+                      UUID id = p.getUniqueId();
+                      Iterator<Map.Entry<String, Hl>> it = map.entrySet().iterator();
+                      while (it.hasNext()) {
+                          Hl h = it.next().getValue();
+                          if (h.viewer == p) {
+                              it.remove();
+                          } else if (id.equals(h.target)) {
+                              clear(h);
+                              it.remove();
+                          }
+                      }
+                  } catch (Throwable ignored) {
+                  }
+              }
+          }
+          EOF_GLOW
+          cat > src/main/java/ru/eclips/friends/FriendsPlugin.java <<'EOF_MAIN'
+          package ru.eclips.friends;
+
+          import cn.nukkit.Player;
+          import cn.nukkit.command.Command;
+          import cn.nukkit.command.CommandSender;
+          import cn.nukkit.event.EventHandler;
+          import cn.nukkit.event.Listener;
+          import cn.nukkit.event.player.PlayerFormRespondedEvent;
+          import cn.nukkit.event.player.PlayerJoinEvent;
+          import cn.nukkit.event.player.PlayerQuitEvent;
+          import cn.nukkit.form.element.ElementButton;
+          import cn.nukkit.form.element.ElementInput;
+          import cn.nukkit.form.response.FormResponse;
+          import cn.nukkit.form.response.FormResponseCustom;
+          import cn.nukkit.form.response.FormResponseModal;
+          import cn.nukkit.form.response.FormResponseSimple;
+          import cn.nukkit.form.window.FormWindow;
+          import cn.nukkit.form.window.FormWindowCustom;
+          import cn.nukkit.form.window.FormWindowModal;
+          import cn.nukkit.form.window.FormWindowSimple;
+          import cn.nukkit.plugin.PluginBase;
+          import cn.nukkit.scheduler.Task;
+
+          import java.io.File;
+          import java.time.Instant;
+          import java.time.LocalDate;
+          import java.time.ZoneId;
+          import java.time.ZoneOffset;
+          import java.time.format.DateTimeFormatter;
+          import java.util.ArrayList;
+          import java.util.Collections;
+          import java.util.HashMap;
+          import java.util.Iterator;
+          import java.util.List;
+          import java.util.Locale;
+          import java.util.Map;
+          import java.util.UUID;
+
+          public class FriendsPlugin extends PluginBase implements Listener {
+
+              static final String PFX = "§6[Друзья] §r";
+
+              /** Какая форма сейчас открыта у игрока. */
+              static final class Ctx {
+                  final int id;
+                  final String type;
+                  final List<String> data;
+                  final String extra;
+
+                  Ctx(int id, String type, List<String> data, String extra) {
+                      this.id = id;
+                      this.type = type;
+                      this.data = data;
+                      this.extra = extra;
+                  }
+              }
+
+              /** Команда /friend (алиасы /freend, /friends). */
+              static final class FriendCmd extends Command {
+                  private final FriendsPlugin pl;
+
+                  FriendCmd(FriendsPlugin pl) {
+                      super("friend", "Друзья и огоньки", "/friend", new String[]{"freend", "friends"});
+                      this.pl = pl;
+                  }
+
+                  @Override
+                  public boolean execute(CommandSender sender, String label, String[] args) {
+                      if (!(sender instanceof Player)) {
+                          sender.sendMessage("§cЭта команда только для игроков.");
+                          return true;
+                      }
+                      try {
+                          pl.menuMain((Player) sender);
+                      } catch (Throwable ignored) {
+                      }
+                      return true;
+                  }
+              }
+
+              /** Админ-команда /af: статистика огоньков. */
+              static final class AfCmd extends Command {
+                  private final FriendsPlugin pl;
+
+                  AfCmd(FriendsPlugin pl) {
+                      super("af", "Статистика огоньков (админ)", "/af", new String[0]);
+                      this.pl = pl;
+                  }
+
+                  @Override
+                  public boolean execute(CommandSender sender, String label, String[] args) {
+                      if (!(sender instanceof Player)) {
+                          sender.sendMessage("§cЭта команда только для игроков.");
+                          return true;
+                      }
+                      if (!pl.isAdmin(sender)) {
+                          sender.sendMessage("§cУ тебя нет прав на эту команду.");
+                          return true;
+                      }
+                      try {
+                          pl.menuAdmin((Player) sender);
+                      } catch (Throwable ignored) {
+                      }
+                      return true;
+                  }
+              }
+
+              Store st;
+              Econ econ;
+              ZoneId zone = ZoneOffset.ofHours(3);
+
+              int maxSparks = 5;
+              int maxFriends = 15;
+              int maxIncoming = 10;
+              int inviteDays = 7;
+              int cooldownMin = 10;
+              int minPlayMin = 60;
+              int warnHours = 3;
+              boolean sameIp = true;
+              long rBase = 500, t1d = 7, t1c = 700, t2d = 14, t2c = 800, t3d = 30, t3c = 1000;
+              String whatText = "";
+              int giftMaxUnclaimed = 20;
+              int giftReturnDays = 14;
+              boolean giftDefaultAnon = false;
+              int msgLimit = 5;
+              int msgMax = 150;
+              int msgKeepDays = 14;
+              int msgStored = 30;
+              boolean msgLog = true;
+              GiftUi gifts;
+              Glow glow;
+              static final DateTimeFormatter DF = DateTimeFormatter.ofPattern("dd.MM HH:mm");
+
+              final Map<UUID, Ctx> ctx = new HashMap<>();
+              final Map<String, Long> declined = new HashMap<>();
+              final Map<String, Long> warned = new HashMap<>();
+              long lastDay = 0;
+
+              // ================== запуск ==================
+
+              @Override
+              public void onEnable() {
+                  try {
+                      saveDefaultConfig();
+                  } catch (Throwable ignored) {
+                  }
+                  readConfig();
+                  getDataFolder().mkdirs();
+                  st = new Store(this, new File(getDataFolder(), "data.yml"));
+                  st.load();
+                  econ = new Econ(this);
+                  getServer().getPluginManager().registerEvents(this, this);
+                  getServer().getCommandMap().register("eclipsfriends", new FriendCmd(this));
+                  getServer().getCommandMap().register("eclipsfriends", new AfCmd(this));
+                  gifts = new GiftUi(this);
+                  gifts.reload();
+                  getServer().getPluginManager().registerEvents(gifts, this);
+                  glow = new Glow(this);
+                  glow.reload();
+                  getServer().getPluginManager().registerEvents(glow, this);
+                  repeat(40, glow.interval, () -> glow.tick());
+                  lastDay = today();
+                  repeat(1200, 1200, this::tick);
+                  repeat(400, 400, () -> st.flush());
+                  repeat(40, 20, () -> gifts.sweep());
+              }
+
+              void later(int ticks, final Runnable r) {
+                  getServer().getScheduler().scheduleDelayedTask(new Task() {
+                      @Override
+                      public void onRun(int currentTick) {
+                          try {
+                              r.run();
+                          } catch (Throwable ignored) {
+                          }
+                      }
+                  }, ticks);
+              }
+
+              void repeat(int delay, int period, final Runnable r) {
+                  getServer().getScheduler().scheduleDelayedRepeatingTask(new Task() {
+                      @Override
+                      public void onRun(int currentTick) {
+                          try {
+                              r.run();
+                          } catch (Throwable ignored) {
+                          }
+                      }
+                  }, delay, period);
+              }
+
+              @Override
+              public void onDisable() {
+                  try {
+                      if (gifts != null) gifts.closeAll();
+                      if (glow != null) glow.closeAll();
+                  } catch (Throwable ignored) {
+                  }
+                  try {
+                      if (st != null) st.close();
+                  } catch (Throwable ignored) {
+                  }
+              }
+
+              void readConfig() {
+                  try {
+                      zone = ZoneId.of(getConfig().getString("timezone", "Europe/Moscow"));
+                  } catch (Throwable t) {
+                      zone = ZoneOffset.ofHours(3);
+                  }
+                  maxSparks = Math.max(1, getConfig().getInt("limits.max-sparks", 5));
+                  maxFriends = Math.max(1, getConfig().getInt("limits.max-friends", 15));
+                  maxIncoming = Math.max(1, getConfig().getInt("limits.max-incoming-invites", 10));
+                  inviteDays = Math.max(1, getConfig().getInt("limits.invite-lifetime-days", 7));
+                  cooldownMin = Math.max(0, getConfig().getInt("limits.invite-cooldown-minutes", 10));
+                  minPlayMin = Math.max(0, getConfig().getInt("antiabuse.min-playtime-minutes", 60));
+                  sameIp = getConfig().getBoolean("antiabuse.block-same-ip", true);
+                  warnHours = Math.max(0, getConfig().getInt("warn-hours-before-loss", 3));
+                  rBase = getConfig().getInt("reward.base", 500);
+                  t1d = getConfig().getInt("reward.tier1-older-than-days", 7);
+                  t1c = getConfig().getInt("reward.tier1-coins", 700);
+                  t2d = getConfig().getInt("reward.tier2-older-than-days", 14);
+                  t2c = getConfig().getInt("reward.tier2-coins", 800);
+                  t3d = getConfig().getInt("reward.tier3-older-than-days", 30);
+                  t3c = getConfig().getInt("reward.tier3-coins", 1000);
+                  whatText = getConfig().getString("texts.what-is-spark", "");
+                  giftMaxUnclaimed = Math.max(1, Math.min(20, getConfig().getInt("gifts.max-unclaimed", 20)));
+                  giftReturnDays = Math.max(1, getConfig().getInt("gifts.return-after-days", 14));
+                  giftDefaultAnon = getConfig().getBoolean("gifts.default-anonymous", false);
+                  msgLimit = Math.max(1, getConfig().getInt("messages.daily-limit", 5));
+                  msgMax = Math.max(10, getConfig().getInt("messages.max-length", 150));
+                  msgKeepDays = Math.max(1, getConfig().getInt("messages.keep-days", 14));
+                  msgStored = Math.max(1, getConfig().getInt("messages.max-stored", 30));
+                  msgLog = getConfig().getBoolean("messages.log-to-console", true);
+              }
+
+              // ================== утилиты ==================
+
+              boolean isAdmin(CommandSender s) {
+                  try {
+                      return s.isOp() || s.hasPermission("eclipsfriends.admin");
+                  } catch (Throwable t) {
+                      return false;
+                  }
+              }
+
+              static String key(String name) {
+                  return name == null ? "" : name.trim().toLowerCase(Locale.ROOT).replace(' ', '_');
+              }
+
+              static String fmt(long n) {
+                  String s = Long.toString(Math.abs(n));
+                  StringBuilder b = new StringBuilder();
+                  int c = 0;
+                  for (int i = s.length() - 1; i >= 0; i--) {
+                      b.append(s.charAt(i));
+                      if (++c % 3 == 0 && i > 0) b.append(' ');
+                  }
+                  return (n < 0 ? "-" : "") + b.reverse();
+              }
+
+              long today() {
+                  return LocalDate.now(zone).toEpochDay();
+              }
+
+              long reward(int streak) {
+                  if (streak > t3d) return t3c;
+                  if (streak > t2d) return t2c;
+                  if (streak > t1d) return t1c;
+                  return rBase;
+              }
+
+              Player online(String k) {
+                  for (Player p : getServer().getOnlinePlayers().values()) {
+                      if (key(p.getName()).equals(k)) return p;
+                  }
+                  return null;
+              }
+
+              /** Сообщение игроку: онлайн — сразу, офлайн — сохраняется и покажется при входе. */
+              void notifyPlayer(String k, String text) {
+                  Player p = online(k);
+                  if (p != null) {
+                      p.sendMessage(PFX + text);
+                      try {
+                          p.sendTip(text);
+                      } catch (Throwable ignored) {
+                      }
+                  } else {
+                      Store.PD d = st.players.get(k);
+                      if (d != null) {
+                          d.notices.add(text);
+                          while (d.notices.size() > 20) d.notices.remove(0);
+                          st.dirty();
+                      }
+                  }
+              }
+
+              static String sparkId(String a, String b) {
+                  return a.compareTo(b) <= 0 ? a + "|" + b : b + "|" + a;
+              }
+
+              Store.Spark spark(String a, String b) {
+                  String id = sparkId(a, b);
+                  for (Store.Spark s : st.sparks) {
+                      if (s.id().equals(id)) return s;
+                  }
+                  return null;
+              }
+
+              List<Store.Spark> sparksOf(String k) {
+                  List<Store.Spark> r = new ArrayList<>();
+                  for (Store.Spark s : st.sparks) {
+                      if (s.a.equals(k) || s.b.equals(k)) r.add(s);
+                  }
+                  return r;
+              }
+
+              Store.Inv findInv(String type, String from, String to) {
+                  for (Store.Inv i : st.invites) {
+                      if (i.type.equals(type) && i.from.equals(from) && i.to.equals(to)) return i;
+                  }
+                  return null;
+              }
+
+              List<Store.Inv> incoming(String k) {
+                  List<Store.Inv> r = new ArrayList<>();
+                  for (Store.Inv i : st.invites) {
+                      if (i.to.equals(k)) r.add(i);
+                  }
+                  return r;
+              }
+
+              String left(Store.Spark s) {
+                  long dl = LocalDate.ofEpochDay(s.lastDone + 2).atStartOfDay(zone).toInstant().toEpochMilli();
+                  long ms = Math.max(0, dl - System.currentTimeMillis());
+                  long h = ms / 3600000L;
+                  long m = (ms / 60000L) % 60;
+                  if (h >= 24) return (h / 24) + " д. " + (h % 24) + " ч.";
+                  return h + " ч. " + m + " мин.";
+              }
+
+              /** Находит игрока по нику: онлайн, в данных плагина, в TpCoins. Возвращает {ключ, имя} или null. */
+              String[] resolve(String input) {
+                  if (input == null) return null;
+                  String k = key(input);
+                  if (k.isEmpty()) return null;
+                  Player op = online(k);
+                  if (op != null) return new String[]{k, op.getName()};
+                  Store.PD d = st.players.get(k);
+                  if (d != null) return new String[]{k, d.name};
+                  String nm = null;
+                  if (econ.has(k)) nm = econ.nameOf(k);
+                  if (nm != null && !nm.isEmpty()) return new String[]{k, nm};
+                  Player found = null;
+                  int cnt = 0;
+                  for (Player p : getServer().getOnlinePlayers().values()) {
+                      if (key(p.getName()).startsWith(k)) {
+                          found = p;
+                          cnt++;
+                      }
+                  }
+                  if (cnt == 1) return new String[]{key(found.getName()), found.getName()};
+                  return null;
+              }
+
+              // ================== логика друзей ==================
+
+              String inviteFriend(Player p, String tk, String tn) {
+                  String me = key(p.getName());
+                  Store.PD my = st.ensure(me, p.getName());
+                  if (tk.equals(me)) return "Нельзя добавить в друзья самого себя.";
+                  Store.PD t = st.players.get(tk);
+                  if (t == null) t = st.ensure(tk, tn);
+                  if (my.friends.contains(tk)) return t.name + " уже у тебя в друзьях.";
+                  if (my.friends.size() >= maxFriends) return "У тебя максимум друзей (" + maxFriends + ").";
+                  if (t.friends.size() >= maxFriends) return "У игрока " + t.name + " уже максимум друзей.";
+                  if (findInv("friend", me, tk) != null) return "Приглашение игроку " + t.name + " уже отправлено.";
+                  Store.Inv rev = findInv("friend", tk, me);
+                  if (rev != null) return acceptInv(p, rev);
+                  Long cd = declined.get(me + ">" + tk + ">friend");
+                  if (cd != null && System.currentTimeMillis() < cd) {
+                      return "Подожди немного перед повторным приглашением этому игроку.";
+                  }
+                  if (incoming(tk).size() >= maxIncoming) return "У игрока " + t.name + " слишком много неотвеченных приглашений.";
+                  Store.Inv iv = new Store.Inv();
+                  iv.type = "friend";
+                  iv.from = me;
+                  iv.fromName = p.getName();
+                  iv.to = tk;
+                  iv.toName = t.name;
+                  iv.created = System.currentTimeMillis();
+                  st.invites.add(iv);
+                  st.dirty();
+                  notifyPlayer(tk, "§e" + p.getName() + " §rприглашает тебя в друзья. Открой §a/friend §r→ «Мои приглашения».");
+                  return "Приглашение в друзья отправлено игроку " + t.name + ".";
+              }
+
+              String checkSpark(String a, String b) {
+                  Store.PD x = st.players.get(a);
+                  Store.PD y = st.players.get(b);
+                  if (x == null || y == null) return "Игрок не найден.";
+                  if (!x.friends.contains(b) || !y.friends.contains(a)) return "Огонёк можно начать только с другом.";
+                  if (spark(a, b) != null) return "Огонёк с этим игроком уже есть.";
+                  if (sparksOf(a).size() >= maxSparks) return x.name + ": уже максимум огоньков (" + maxSparks + ").";
+                  if (sparksOf(b).size() >= maxSparks) return y.name + ": уже максимум огоньков (" + maxSparks + ").";
+                  if (sameIp && !x.ip.isEmpty() && x.ip.equals(y.ip)) {
+                      return "Огонёк недоступен игрокам с одинаковым IP-адресом.";
+                  }
+                  long need = minPlayMin * 60L;
+                  if (x.playSec < need) {
+                      return x.name + ": нужно наиграть минимум " + minPlayMin + " мин. (сейчас " + (x.playSec / 60) + ").";
+                  }
+                  if (y.playSec < need) {
+                      return y.name + ": нужно наиграть минимум " + minPlayMin + " мин. (сейчас " + (y.playSec / 60) + ").";
+                  }
+                  return null;
+              }
+
+              String inviteSpark(Player p, String tk) {
+                  String me = key(p.getName());
+                  Store.PD my = st.ensure(me, p.getName());
+                  Store.PD t = st.players.get(tk);
+                  if (t == null) return "Игрок не найден.";
+                  String er = checkSpark(me, tk);
+                  if (er != null) return er;
+                  if (findInv("spark", me, tk) != null) return "Приглашение на огонёк игроку " + t.name + " уже отправлено.";
+                  Store.Inv rev = findInv("spark", tk, me);
+                  if (rev != null) return acceptInv(p, rev);
+                  Long cd = declined.get(me + ">" + tk + ">spark");
+                  if (cd != null && System.currentTimeMillis() < cd) {
+                      return "Подожди немного перед повторным приглашением этому игроку.";
+                  }
+                  if (incoming(tk).size() >= maxIncoming) return "У игрока " + t.name + " слишком много неотвеченных приглашений.";
+                  Store.Inv iv = new Store.Inv();
+                  iv.type = "spark";
+                  iv.from = me;
+                  iv.fromName = my.name;
+                  iv.to = tk;
+                  iv.toName = t.name;
+                  iv.created = System.currentTimeMillis();
+                  st.invites.add(iv);
+                  st.dirty();
+                  notifyPlayer(tk, "§e" + p.getName() + " §rзовёт тебя начать огонёк! Открой §a/friend §r→ «Мои приглашения».");
+                  return "Приглашение на огонёк отправлено игроку " + t.name + ".";
+              }
+
+              String acceptInv(Player p, Store.Inv inv) {
+                  st.invites.remove(inv);
+                  st.dirty();
+                  String me = key(p.getName());
+                  if (!inv.to.equals(me)) return "Это приглашение не для тебя.";
+                  Store.PD b = st.ensure(me, p.getName());
+                  Store.PD a = st.ensure(inv.from, inv.fromName);
+                  if (inv.type.equals("friend")) {
+                      if (a.friends.contains(me) || b.friends.contains(inv.from)) return "Вы уже друзья.";
+                      if (a.friends.size() >= maxFriends) return "У игрока " + a.name + " уже максимум друзей.";
+                      if (b.friends.size() >= maxFriends) return "У тебя максимум друзей (" + maxFriends + ").";
+                      a.friends.add(me);
+                      b.friends.add(inv.from);
+                      st.dirty();
+                      notifyPlayer(inv.from, "§a" + p.getName() + " §rпринял твоё приглашение: вы теперь друзья!");
+                      return "Теперь ты дружишь с " + a.name + "!";
+                  }
+                  String er = checkSpark(inv.from, me);
+                  if (er != null) return er;
+                  Store.Spark s = new Store.Spark();
+                  if (inv.from.compareTo(me) <= 0) {
+                      s.a = inv.from;
+                      s.an = a.name;
+                      s.b = me;
+                      s.bn = b.name;
+                  } else {
+                      s.a = me;
+                      s.an = b.name;
+                      s.b = inv.from;
+                      s.bn = a.name;
+                  }
+                  long today = today();
+                  s.start = today;
+                  s.lastDone = today;
+                  s.streak = 0;
+                  st.sparks.add(s);
+                  st.event("created");
+                  st.dirty();
+                  notifyPlayer(inv.from, "§a" + p.getName() + " §rпринял приглашение: огонёк начат! Продли его сегодня.");
+                  return "Огонёк с " + a.name + " начат! Продли его сегодня вместе с другом, и серия пойдёт.";
+              }
+
+              String declineInv(Player p, Store.Inv inv) {
+                  st.invites.remove(inv);
+                  st.dirty();
+                  if (cooldownMin > 0) {
+                      declined.put(inv.from + ">" + inv.to + ">" + inv.type, System.currentTimeMillis() + cooldownMin * 60000L);
+                  }
+                  notifyPlayer(inv.from, "§c" + p.getName() + " §rотклонил твоё приглашение"
+                          + (inv.type.equals("spark") ? " на огонёк." : " в друзья."));
+                  return "Приглашение от " + inv.fromName + " отклонено.";
+              }
+
+              String removeFriend(Player p, String fk) {
+                  String me = key(p.getName());
+                  Store.PD my = st.ensure(me, p.getName());
+                  Store.PD f = st.players.get(fk);
+                  if (!my.friends.contains(fk)) return "Этого игрока нет в твоих друзьях.";
+                  my.friends.remove(fk);
+                  if (f != null) f.friends.remove(me);
+                  boolean lost = false;
+                  Store.Spark s = spark(me, fk);
+                  if (s != null) {
+                      st.sparks.remove(s);
+                      st.event("died");
+                      lost = true;
+                  }
+                  Iterator<Store.Inv> it = st.invites.iterator();
+                  while (it.hasNext()) {
+                      Store.Inv i = it.next();
+                      if ((i.from.equals(me) && i.to.equals(fk)) || (i.from.equals(fk) && i.to.equals(me))) it.remove();
+                  }
+                  final String fme = me;
+                  final String ffk = fk;
+                  st.msgs.removeIf(x -> (x.from.equals(fme) && x.to.equals(ffk)) || (x.from.equals(ffk) && x.to.equals(fme)));
+                  st.dirty();
+                  notifyPlayer(fk, "§c" + p.getName() + " §rудалил тебя из друзей." + (lost ? " Общий огонёк потерян." : ""));
+                  String nm = f != null ? f.name : fk;
+                  return nm + " удалён из друзей." + (lost ? " Общий огонёк сгорел, накопленные монеты остались у тебя." : "");
+              }
+
+              // ================== логика огоньков ==================
+
+              String prolong(Player p, Store.Spark s) {
+                  long today = today();
+                  String me = key(p.getName());
+                  String o = s.other(me);
+                  String on = s.otherName(me);
+                  if (s.last(me) == today) return "Ты уже продлил огонёк с " + on + " сегодня.";
+                  s.setLast(me, today);
+                  st.dirty();
+                  if (s.last(o) == today) {
+                      s.streak++;
+                      s.lastDone = today;
+                      long r = reward(s.streak);
+                      Store.PD x = st.ensure(me, p.getName());
+                      Store.PD y = st.ensure(o, on);
+                      x.pending += r;
+                      y.pending += r;
+                      st.dirty();
+                      notifyPlayer(o, "§aОгонёк с " + p.getName() + ": день " + s.streak + "! §r+" + fmt(r)
+                              + " монет в накопитель.");
+                      return "Огонёк с " + on + ": день " + s.streak + "! Каждому по " + fmt(r)
+                              + " монет в накопитель. Забрать: Огоньки → Вывести монеты.";
+                  }
+                  notifyPlayer(o, "§e" + p.getName() + " §rпродлил огонёк. Продли и ты, чтобы не потерять серию!");
+                  return "Ты продлил огонёк с " + on + ". Ждём, когда продлит и друг.";
+              }
+
+              String withdraw(Player p) {
+                  String me = key(p.getName());
+                  Store.PD d = st.ensure(me, p.getName());
+                  if (d.pending <= 0) return "В накопителе пока нет монет.";
+                  long want = d.pending;
+                  long paid = econ.pay(p, want);
+                  if (paid < 0) {
+                      getLogger().warning("Не удалось выдать монеты игроку " + p.getName() + " (TpCoins недоступен).");
+                      return "Сейчас монеты выдать не получается. Они сохранены в накопителе, попробуй чуть позже.";
+                  }
+                  if (paid == 0) return "Твой баланс монет заполнен. Потрать монеты и забери награду снова.";
+                  d.pending = Math.max(0, d.pending - paid);
+                  st.dirty();
+                  if (d.pending > 0) {
+                      return "Выведено " + fmt(paid) + " монет. Остаток в накопителе: " + fmt(d.pending)
+                              + " (баланс почти полон).";
+                  }
+                  return "Выведено " + fmt(paid) + " монет на твой баланс!";
+              }
+
+              void remind(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.players.get(k);
+                  if (d == null) return;
+                  if (!d.notices.isEmpty()) {
+                      for (String n : d.notices) p.sendMessage(PFX + n);
+                      d.notices.clear();
+                      st.dirty();
+                  }
+                  int inv = incoming(k).size();
+                  if (inv > 0) p.sendMessage(PFX + "У тебя новых приглашений: §a" + inv + "§r. Открой §a/friend§r.");
+                  long today = today();
+                  List<String> need = new ArrayList<>();
+                  for (Store.Spark s : sparksOf(k)) {
+                      if (s.last(k) != today) need.add(s.otherName(k));
+                  }
+                  if (!need.isEmpty()) {
+                      p.sendMessage(PFX + "Не забудь продлить огоньки: §e" + String.join(", ", need) + "§r. §a/friend");
+                  }
+                  int gc = st.giftsFor(k).size();
+                  if (gc > 0) p.sendMessage(PFX + "Тебя ждут подарки: §a" + gc + "§r. §a/friend §r→ «Подарки».");
+                  int um = unread(k);
+                  if (um > 0) p.sendMessage(PFX + "Новых анонимных сообщений: §a" + um + "§r. §a/friend §r→ «Анонимные сообщения».");
+                  if (d.pending > 0) {
+                      p.sendMessage(PFX + "В накопителе огоньков: §a" + fmt(d.pending) + "§r монет.");
+                  }
+              }
+
+              /** Раз в минуту: учёт времени игры, сгорание огоньков, напоминания, очистка старых приглашений. */
+              void tick() {
+                  try {
+                      long today = today();
+                      long now = System.currentTimeMillis();
+                      for (Player p : getServer().getOnlinePlayers().values()) {
+                          Store.PD d = st.players.get(key(p.getName()));
+                          if (d != null) d.playSec += 60;
+                      }
+                      st.dirty();
+
+                      long life = inviteDays * 86400000L;
+                      Iterator<Store.Inv> ii = st.invites.iterator();
+                      while (ii.hasNext()) {
+                          if (now - ii.next().created > life) ii.remove();
+                      }
+                      declined.values().removeIf(v -> v < now);
+                      st.pruneEvents(now - 30L * 86400000L);
+
+                      long giftLife = giftReturnDays * 86400000L;
+                      for (Store.Gift g : st.gifts) {
+                          if (!g.returned && !g.from.isEmpty() && now - g.created > giftLife) {
+                              String oldTo = g.toName;
+                              g.returned = true;
+                              g.to = g.from;
+                              g.toName = g.fromName;
+                              g.from = "";
+                              g.fromName = "Возврат";
+                              g.anon = false;
+                              g.created = now;
+                              notifyPlayer(g.to, "§eПодарок для " + oldTo + " не забрали за " + giftReturnDays
+                                      + " дн., он вернулся к тебе. §rОткрой §a/friend §r→ «Подарки» → «Мои подарки».");
+                              st.dirty();
+                          }
+                      }
+                      long msgLife = msgKeepDays * 86400000L;
+                      if (st.msgs.removeIf(x -> now - x.created > msgLife && !(x.reported && !x.handled))) st.dirty();
+
+                      Iterator<Store.Spark> si = st.sparks.iterator();
+                      while (si.hasNext()) {
+                          Store.Spark s = si.next();
+                          if (today - s.lastDone >= 2) {
+                              si.remove();
+                              st.event("died");
+                              warned.remove(s.id());
+                              notifyPlayer(s.a, "§cОгонёк с " + s.bn + " сгорел: серия в " + s.streak + " дн. потеряна.");
+                              notifyPlayer(s.b, "§cОгонёк с " + s.an + " сгорел: серия в " + s.streak + " дн. потеряна.");
+                          }
+                      }
+
+                      if (warnHours > 0) {
+                          long midnight = LocalDate.now(zone).plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli();
+                          long rem = midnight - now;
+                          for (Store.Spark s : st.sparks) {
+                              if (s.lastDone == today - 1 && rem <= warnHours * 3600000L) {
+                                  Long w = warned.get(s.id());
+                                  if (w != null && w == today) continue;
+                                  warned.put(s.id(), today);
+                                  for (String k : new String[]{s.a, s.b}) {
+                                      if (s.last(k) != today) {
+                                          Player q = online(k);
+                                          if (q != null) {
+                                              q.sendMessage(PFX + "§cОгонёк с " + s.otherName(k)
+                                                      + " скоро сгорит! Продли его сегодня (осталось около " + (rem / 3600000L + 1)
+                                                      + " ч.).");
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                      }
+
+                      if (today != lastDay) {
+                          lastDay = today;
+                          for (Player p : getServer().getOnlinePlayers().values()) remind(p);
+                      }
+                  } catch (Throwable ignored) {
+                  }
+              }
+
+              // ================== события ==================
+
+              @EventHandler
+              public void onJoin(PlayerJoinEvent e) {
+                  try {
+                      final Player p = e.getPlayer();
+                      String k = key(p.getName());
+                      Store.PD d = st.ensure(k, p.getName());
+                      try {
+                          String ip = p.getAddress();
+                          if (ip != null && !ip.isEmpty()) d.ip = ip;
+                      } catch (Throwable ignored) {
+                      }
+                      d.lastSeen = System.currentTimeMillis();
+                      st.dirty();
+                      later(100, () -> {
+                          if (p.isOnline()) remind(p);
+                      });
+                  } catch (Throwable ignored) {
+                  }
+              }
+
+              @EventHandler
+              public void onQuit(PlayerQuitEvent e) {
+                  try {
+                      Player p = e.getPlayer();
+                      ctx.remove(p.getUniqueId());
+                      Store.PD d = st.players.get(key(p.getName()));
+                      if (d != null) {
+                          d.lastSeen = System.currentTimeMillis();
+                          st.dirty();
+                      }
+                  } catch (Throwable ignored) {
+                  }
+              }
+
+              @EventHandler
+              public void onForm(PlayerFormRespondedEvent e) {
+                  Player p = e.getPlayer();
+                  Ctx c = ctx.get(p.getUniqueId());
+                  if (c == null || c.id != e.getFormID()) return;
+                  ctx.remove(p.getUniqueId());
+                  if (e.wasClosed() || e.getResponse() == null) return;
+                  try {
+                      handle(p, c, e.getResponse());
+                  } catch (Throwable t) {
+                      getLogger().warning("Ошибка формы: " + t);
+                  }
+              }
+
+              // ================== формы ==================
+
+              static ElementButton btn(String text) {
+                  return new ElementButton("§l" + text);
+              }
+
+              void open(Player p, String type, FormWindow w, List<String> data, String extra) {
+                  later(2, () -> {
+                      if (!p.isOnline()) return;
+                      try {
+                          int id = p.showFormWindow(w);
+                          ctx.put(p.getUniqueId(), new Ctx(id, type, data, extra));
+                      } catch (Throwable ignored) {
+                      }
+                  });
+              }
+
+              /** Окно с текстом и кнопкой «Назад» (текст дублируется в чат). */
+              void res(Player p, String title, String text, String back) {
+                  p.sendMessage(PFX + text);
+                  resForm(p, title, text, back);
+              }
+
+              /** То же, но без дублирования в чат. */
+              void resForm(Player p, String title, String text, String back) {
+                  FormWindowSimple w = new FormWindowSimple("§l" + title, text);
+                  w.addButton(btn("Назад"));
+                  open(p, "res", w, null, back);
+              }
+
+              void goBack(Player p, String back) {
+                  if ("spark".equals(back)) menuSpark(p);
+                  else if ("add".equals(back)) menuAdd(p);
+                  else if ("inv".equals(back)) menuInvites(p);
+                  else if ("gifts".equals(back)) menuGifts(p);
+                  else if ("msgs".equals(back)) menuMsgs(p);
+                  else if ("inbox".equals(back)) menuInbox(p);
+                  else if ("af".equals(back)) menuAdmin(p);
+                  else menuMain(p);
+              }
+
+              void menuMain(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  int inv = incoming(k).size();
+                  int um = unread(k);
+                  FormWindowSimple w = new FormWindowSimple("§lДрузья",
+                          "§lДрузей: §r" + d.friends.size() + "/" + maxFriends
+                                  + "\n§lОгоньков: §r" + sparksOf(k).size() + "/" + maxSparks
+                                  + "\n§lМонет в накопителе: §r" + fmt(d.pending));
+                  w.addButton(btn("Огоньки"));
+                  w.addButton(btn("Подарки" + (st.giftsFor(k).size() > 0 ? " (" + st.giftsFor(k).size() + ")" : "")));
+                  w.addButton(btn("Телепорт к другу"));
+                  w.addButton(btn("Анонимные сообщения" + (um > 0 ? " (" + um + ")" : "")));
+                  w.addButton(btn("Добавить друга"));
+                  w.addButton(btn("Мои приглашения" + (inv > 0 ? " (" + inv + ")" : "")));
+                  w.addButton(btn("Друзья онлайн"));
+                  w.addButton(btn("Удалить друга"));
+                  open(p, "main", w, null, null);
+              }
+
+              // ---------- админ-панель /af ----------
+
+              List<Store.Msg> openReports() {
+                  List<Store.Msg> r = new ArrayList<>();
+                  for (Store.Msg m : st.msgs) {
+                      if (m.reported && !m.handled) r.add(m);
+                  }
+                  r.sort((a, b) -> Long.compare(b.created, a.created));
+                  return r;
+              }
+
+              void menuAdmin(Player p) {
+                  long since = System.currentTimeMillis() - 7L * 86400000L;
+                  int anonGifts = 0;
+                  for (Store.Gift g : st.gifts) {
+                      if (g.anon && !g.returned) anonGifts++;
+                  }
+                  int reps = openReports().size();
+                  FormWindowSimple w = new FormWindowSimple("§lСтатистика огоньков",
+                          "§lАктивных огоньков сейчас: §r" + st.sparks.size()
+                                  + "\n§lСоздано за 7 дней: §r" + st.countEvents("created", since)
+                                  + "\n§lУмерло за 7 дней: §r" + st.countEvents("died", since)
+                                  + "\n\n§lПодарков ждёт получения: §r" + st.gifts.size() + " (анонимных: " + anonGifts + ")"
+                                  + "\n§lПодарков отправлено за 7 дней: §r" + st.countEvents("gift", since)
+                                  + "\n§lАнонимных сообщений за 7 дней: §r" + st.countEvents("msg", since)
+                                  + "\n§lЖалоб без ответа: §r" + reps);
+                  w.addButton(btn("Обновить"));
+                  w.addButton(btn("Жалобы на сообщения" + (reps > 0 ? " (" + reps + ")" : "")));
+                  w.addButton(btn("Анонимные подарки (кто дарил)"));
+                  w.addButton(btn("Закрыть"));
+                  open(p, "af", w, null, null);
+              }
+
+              void menuAdminReports(Player p) {
+                  List<Store.Msg> list = openReports();
+                  if (list.isEmpty()) {
+                      resForm(p, "Жалобы", "Жалоб без ответа нет.", "af");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lЖалобы на сообщения", "Выбери жалобу. Здесь видно реального автора.");
+                  List<String> ids = new ArrayList<>();
+                  for (Store.Msg m : list) {
+                      if (ids.size() >= 30) break;
+                      w.addButton(btn(m.fromName + " → " + m.toName + " · " + dt(m.created)));
+                      ids.add(String.valueOf(m.id));
+                  }
+                  open(p, "afRep", w, ids, null);
+              }
+
+              void menuAdminReportView(Player p, long id) {
+                  Store.Msg m = st.findMsg(id);
+                  if (m == null) {
+                      resForm(p, "Жалоба", "Это сообщение уже удалено.", "af");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lЖалоба",
+                          "§lАвтор: §r" + m.fromName + "\n§lПолучатель: §r" + m.toName
+                                  + "\n§lТип: §r" + (m.type.equals("reply") ? "ответ" : "анонимное сообщение")
+                                  + "\n§lДата: §r" + dt(m.created) + "\n\n" + m.text);
+                  w.addButton(btn("Закрыть жалобу"));
+                  w.addButton(btn("Удалить сообщение"));
+                  w.addButton(btn("Назад"));
+                  open(p, "afRepView", w, null, String.valueOf(id));
+              }
+
+              void menuAdminGifts(Player p) {
+                  List<Store.Gift> list = new ArrayList<>();
+                  for (Store.Gift g : st.gifts) {
+                      if (g.anon && !g.returned) list.add(g);
+                  }
+                  list.sort((a, b) -> Long.compare(b.created, a.created));
+                  if (list.isEmpty()) {
+                      resForm(p, "Анонимные подарки", "Неполученных анонимных подарков нет.", "af");
+                      return;
+                  }
+                  StringBuilder sb = new StringBuilder("Неполученные анонимные подарки (автор → получатель):\n\n");
+                  int n = 0;
+                  for (Store.Gift g : list) {
+                      if (n++ >= 25) break;
+                      sb.append("• ").append(g.fromName).append(" → ").append(g.toName).append(" · ")
+                              .append(g.items.size()).append(" предм. · ").append(dt(g.created)).append("\n");
+                  }
+                  sb.append("\nПолная история всех подарков пишется в консоль сервера.");
+                  resForm(p, "Анонимные подарки", sb.toString().trim(), "af");
+              }
+
+              void menuSpark(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  FormWindowSimple w = new FormWindowSimple("§lОгоньки",
+                          "§lОгоньков: §r" + sparksOf(k).size() + "/" + maxSparks
+                                  + "\n§lМонет в накопителе: §r" + fmt(d.pending)
+                                  + "\nНовый день начинается в 00:00 (" + zone.getId() + ").");
+                  w.addButton(btn("Начать огонёк с другом"));
+                  w.addButton(btn("Мои огоньки"));
+                  w.addButton(btn("Продлить огонёк"));
+                  w.addButton(btn("Вывести монеты (" + fmt(d.pending) + ")"));
+                  w.addButton(btn("Что такое огонёк"));
+                  w.addButton(btn("Назад"));
+                  open(p, "spark", w, null, null);
+              }
+
+              void menuStart(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  List<String> keys = new ArrayList<>();
+                  FormWindowSimple w = new FormWindowSimple("§lНачать огонёк",
+                          "Выбери друга. Ему придёт приглашение, огонёк начнётся, когда он его примет.");
+                  for (String fk : d.friends) {
+                      if (spark(k, fk) != null) continue;
+                      Store.PD f = st.players.get(fk);
+                      String nm = f != null ? f.name : fk;
+                      w.addButton(btn(nm + (online(fk) != null ? " (в сети)" : "")));
+                      keys.add(fk);
+                  }
+                  if (keys.isEmpty()) {
+                      res(p, "Начать огонёк", "Нет друзей для нового огонька: добавь друзей или у всех уже есть огонёк.", "spark");
+                      return;
+                  }
+                  open(p, "start", w, keys, null);
+              }
+
+              void menuMySparks(Player p) {
+                  String k = key(p.getName());
+                  long today = today();
+                  List<Store.Spark> list = sparksOf(k);
+                  if (list.isEmpty()) {
+                      res(p, "Мои огоньки", "У тебя пока нет огоньков. Начни огонёк с другом!", "spark");
+                      return;
+                  }
+                  StringBuilder sb = new StringBuilder();
+                  for (Store.Spark s : list) {
+                      String o = s.other(k);
+                      String on = s.otherName(k);
+                      boolean mine = s.last(k) == today;
+                      boolean his = s.last(o) == today;
+                      String state;
+                      if (mine && his) state = "сегодня продлили оба";
+                      else if (mine) state = "ты продлил, ждём " + on;
+                      else if (his) state = on + " продлил, ждёт тебя";
+                      else state = "сегодня ещё никто не продлил";
+                      sb.append("§l").append(on).append("§r — серия: §l").append(s.streak).append("§r дн.\n")
+                              .append(state).append("\nСгорит через: ").append(left(s))
+                              .append("\nСледующая награда: ").append(fmt(reward(s.streak + 1))).append(" монет\n\n");
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lМои огоньки", sb.toString().trim());
+                  w.addButton(btn("Назад"));
+                  open(p, "res", w, null, "spark");
+              }
+
+              void menuProlong(Player p) {
+                  String k = key(p.getName());
+                  long today = today();
+                  List<Store.Spark> list = sparksOf(k);
+                  if (list.isEmpty()) {
+                      res(p, "Продлить огонёк", "У тебя пока нет огоньков.", "spark");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lПродлить огонёк", "Выбери огонёк, который хочешь продлить сегодня.");
+                  List<String> ids = new ArrayList<>();
+                  for (Store.Spark s : list) {
+                      boolean mine = s.last(k) == today;
+                      w.addButton(btn(s.otherName(k) + " — серия " + s.streak + (mine ? " (уже продлено)" : " (продлить)")));
+                      ids.add(s.id());
+                  }
+                  open(p, "prolong", w, ids, null);
+              }
+
+              void menuWhat(Player p) {
+                  String text = whatText == null || whatText.trim().isEmpty()
+                          ? "Расти огонёк вместе со своим другом, и вы оба будете получать монеты: чем дольше огонёк, тем больше монет! "
+                          + "Если один из вас не продлит огонёк, вы потеряете серию."
+                          : whatText;
+                  text += "\n\n§lНаграда каждому за день:§r\n"
+                          + "• обычная: " + fmt(rBase) + " монет\n"
+                          + "• серия больше " + t1d + " дн.: " + fmt(t1c) + "\n"
+                          + "• серия больше " + t2d + " дн.: " + fmt(t2c) + "\n"
+                          + "• серия больше " + t3d + " дн.: " + fmt(t3c)
+                          + "\n\nОгонёк продлевают оба друга каждый день. Если за сутки не продлил хотя бы один, серия пропадает."
+                          + "\nМаксимум огоньков: " + maxSparks + ".";
+                  FormWindowSimple w = new FormWindowSimple("§lЧто такое огонёк", text);
+                  w.addButton(btn("Назад"));
+                  open(p, "res", w, null, "spark");
+              }
+
+              void menuAdd(Player p) {
+                  FormWindowSimple w = new FormWindowSimple("§lДобавить друга",
+                          "Игроку придёт приглашение в друзья. Друзей можно иметь не больше " + maxFriends + ".");
+                  w.addButton(btn("Ввести ник"));
+                  w.addButton(btn("Выбрать среди игроков онлайн"));
+                  w.addButton(btn("Назад"));
+                  open(p, "add", w, null, null);
+              }
+
+              void menuAddInput(Player p) {
+                  FormWindowCustom w = new FormWindowCustom("§lДобавить друга");
+                  w.addElement(new ElementInput("Ник игрока", "Введи ник"));
+                  open(p, "addInput", w, null, null);
+              }
+
+              void menuAddOnline(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  List<String> keys = new ArrayList<>();
+                  FormWindowSimple w = new FormWindowSimple("§lИгроки онлайн", "Выбери игрока, чтобы отправить приглашение в друзья.");
+                  for (Player o : getServer().getOnlinePlayers().values()) {
+                      String ok = key(o.getName());
+                      if (ok.equals(k) || d.friends.contains(ok)) continue;
+                      w.addButton(btn(o.getName()));
+                      keys.add(ok);
+                  }
+                  if (keys.isEmpty()) {
+                      res(p, "Игроки онлайн", "Сейчас нет игроков, которых можно добавить.", "add");
+                      return;
+                  }
+                  open(p, "addOnline", w, keys, null);
+              }
+
+              void menuInvites(Player p) {
+                  String k = key(p.getName());
+                  List<Store.Inv> in = incoming(k);
+                  if (in.isEmpty()) {
+                      res(p, "Мои приглашения", "Новых приглашений нет.", "main");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lМои приглашения", "Выбери приглашение, чтобы принять или отклонить его.");
+                  List<String> data = new ArrayList<>();
+                  for (Store.Inv i : in) {
+                      w.addButton(btn(i.fromName + " — " + (i.type.equals("spark") ? "огонёк" : "в друзья")));
+                      data.add(i.type + "|" + i.from);
+                  }
+                  open(p, "invList", w, data, null);
+              }
+
+              void menuInviteAct(Player p, String type, String from) {
+                  Store.Inv i = findInv(type, from, key(p.getName()));
+                  if (i == null) {
+                      res(p, "Приглашение", "Это приглашение уже недействительно.", "inv");
+                      return;
+                  }
+                  String what = type.equals("spark") ? "начать с тобой огонёк" : "добавить тебя в друзья";
+                  FormWindowModal w = new FormWindowModal("§lПриглашение", i.fromName + " хочет " + what + ".",
+                          "§lПринять", "§lОтклонить");
+                  open(p, "invAct", w, null, type + "|" + from);
+              }
+
+              void menuOnline(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  StringBuilder on = new StringBuilder();
+                  int onl = 0;
+                  int off = 0;
+                  for (String fk : d.friends) {
+                      Player o = online(fk);
+                      Store.PD f = st.players.get(fk);
+                      String nm = f != null ? f.name : fk;
+                      if (o != null) {
+                          onl++;
+                          on.append("• ").append(nm).append("\n");
+                      } else {
+                          off++;
+                      }
+                  }
+                  String text;
+                  if (d.friends.isEmpty()) text = "У тебя пока нет друзей. Добавь их в разделе «Добавить друга».";
+                  else if (onl == 0) text = "Сейчас никто из друзей не в сети.\nНе в сети: " + off;
+                  else text = "§lВ сети (" + onl + "):§r\n" + on.toString().trim() + (off > 0 ? "\n\nНе в сети: " + off : "");
+                  FormWindowSimple w = new FormWindowSimple("§lДрузья онлайн", text);
+                  w.addButton(btn("Назад"));
+                  open(p, "res", w, null, "main");
+              }
+
+              void menuDelete(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  if (d.friends.isEmpty()) {
+                      res(p, "Удалить друга", "У тебя пока нет друзей.", "main");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lУдалить друга", "Выбери друга, которого хочешь удалить.");
+                  List<String> keys = new ArrayList<>();
+                  for (String fk : d.friends) {
+                      Store.PD f = st.players.get(fk);
+                      String nm = f != null ? f.name : fk;
+                      w.addButton(btn(nm + (spark(k, fk) != null ? " (есть огонёк)" : "")));
+                      keys.add(fk);
+                  }
+                  open(p, "del", w, keys, null);
+              }
+
+              void menuDeleteConfirm(Player p, String fk) {
+                  String k = key(p.getName());
+                  Store.PD f = st.players.get(fk);
+                  String nm = f != null ? f.name : fk;
+                  String warn = spark(k, fk) != null ? "\n\nОбщий огонёк сгорит, серия будет потеряна." : "";
+                  FormWindowModal w = new FormWindowModal("§lУдалить друга", "Удалить " + nm + " из друзей?" + warn,
+                          "§lУдалить", "§lОтмена");
+                  open(p, "delConfirm", w, null, fk);
+              }
+
+              // ================== подарки, сообщения, телепорт ==================
+
+              String dt(long ms) {
+                  return Instant.ofEpochMilli(ms).atZone(zone).format(DF);
+              }
+
+              static String clean(String s) {
+                  if (s == null) return "";
+                  return s.replace("§", "").replace('\n', ' ').replace('\r', ' ').trim();
+              }
+
+              int msgLeft(Store.PD d) {
+                  if (d.msgDay != today()) return msgLimit;
+                  return Math.max(0, msgLimit - d.msgCount);
+              }
+
+              List<Store.Msg> inbox(String k) {
+                  List<Store.Msg> r = new ArrayList<>();
+                  for (Store.Msg m : st.msgs) {
+                      if (m.to.equals(k)) r.add(m);
+                  }
+                  r.sort((a, b) -> Long.compare(b.created, a.created));
+                  return r;
+              }
+
+              int unread(String k) {
+                  int c = 0;
+                  for (Store.Msg m : st.msgs) {
+                      if (m.to.equals(k) && !m.read) c++;
+                  }
+                  return c;
+              }
+
+              void trimInbox(String k) {
+                  List<Store.Msg> list = inbox(k);
+                  Collections.reverse(list);
+                  int over = list.size() - (msgStored - 1);
+                  for (Store.Msg m : list) {
+                      if (over <= 0) break;
+                      if (m.reported && !m.handled) continue;
+                      st.msgs.remove(m);
+                      over--;
+                  }
+              }
+
+              void notifyAdmins(String text) {
+                  for (Player a : getServer().getOnlinePlayers().values()) {
+                      if (isAdmin(a)) a.sendMessage(PFX + text);
+                  }
+              }
+
+              String sendAnon(Player p, String tk, String raw) {
+                  String me = key(p.getName());
+                  Store.PD my = st.ensure(me, p.getName());
+                  Store.PD t = st.players.get(tk);
+                  if (t == null || !my.friends.contains(tk)) return "Сообщение можно отправить только другу.";
+                  String text = clean(raw);
+                  if (text.isEmpty()) return "Сообщение пустое.";
+                  if (text.length() > msgMax) return "Слишком длинно: максимум " + msgMax + " символов (у тебя " + text.length() + ").";
+                  long today = today();
+                  if (my.msgDay != today) {
+                      my.msgDay = today;
+                      my.msgCount = 0;
+                  }
+                  if (my.msgCount >= msgLimit) {
+                      return "Лимит: " + msgLimit + " анонимных сообщений в день. Новый день начнётся в 00:00.";
+                  }
+                  trimInbox(tk);
+                  Store.Msg m = new Store.Msg();
+                  m.id = st.newId();
+                  m.type = "anon";
+                  m.from = me;
+                  m.fromName = p.getName();
+                  m.to = tk;
+                  m.toName = t.name;
+                  m.text = text;
+                  m.created = System.currentTimeMillis();
+                  st.msgs.add(m);
+                  my.msgCount++;
+                  st.event("msg");
+                  st.dirty();
+                  if (msgLog) getLogger().info("[АНОН-СООБЩЕНИЕ] " + p.getName() + " -> " + t.name + ": " + text);
+                  notifyPlayer(tk, "§aТебе пришло анонимное сообщение! §rОткрой §a/friend §r→ «Анонимные сообщения».");
+                  return "Анонимное сообщение отправлено игроку " + t.name + ". Осталось сегодня: " + (msgLimit - my.msgCount) + ".";
+              }
+
+              String sendReply(Player p, Store.Msg orig, String raw) {
+                  String me = key(p.getName());
+                  if (!orig.to.equals(me) || !orig.type.equals("anon")) return "На это сообщение нельзя ответить.";
+                  if (orig.replied) return "Ты уже ответил на это сообщение.";
+                  Store.PD my = st.ensure(me, p.getName());
+                  Store.PD t = st.players.get(orig.from);
+                  if (t == null || !my.friends.contains(orig.from)) return "Автор сообщения больше не в твоих друзьях.";
+                  String text = clean(raw);
+                  if (text.isEmpty()) return "Ответ пустой.";
+                  if (text.length() > msgMax) return "Слишком длинно: максимум " + msgMax + " символов (у тебя " + text.length() + ").";
+                  trimInbox(orig.from);
+                  Store.Msg m = new Store.Msg();
+                  m.id = st.newId();
+                  m.type = "reply";
+                  m.from = me;
+                  m.fromName = p.getName();
+                  m.to = orig.from;
+                  m.toName = t.name;
+                  m.text = text;
+                  m.created = System.currentTimeMillis();
+                  st.msgs.add(m);
+                  orig.replied = true;
+                  st.dirty();
+                  if (msgLog) getLogger().info("[ОТВЕТ] " + p.getName() + " -> " + t.name + ": " + text);
+                  notifyPlayer(orig.from, "§aТебе ответили на анонимное сообщение! §rОткрой §a/friend §r→ «Анонимные сообщения».");
+                  return "Ответ отправлен. Автор увидит, что отвечаешь ты.";
+              }
+
+              String reportMsg(Player p, Store.Msg m) {
+                  if (!m.to.equals(key(p.getName()))) return "Это сообщение не для тебя.";
+                  if (m.reported) return "Жалоба уже отправлена.";
+                  m.reported = true;
+                  m.handled = false;
+                  st.dirty();
+                  getLogger().warning("[ЖАЛОБА] " + p.getName() + " пожаловался на сообщение от " + m.fromName + ": " + m.text);
+                  notifyAdmins("§cЖалоба на сообщение: §e" + m.fromName + " §r→ §e" + m.toName + "§r. Подробности: §a/af");
+                  return "Жалоба отправлена администрации. Спасибо!";
+              }
+
+              void menuGifts(Player p) {
+                  String k = key(p.getName());
+                  int mine = st.giftsFor(k).size();
+                  FormWindowSimple w = new FormWindowSimple("§lПодарки",
+                          "§lНеполученных подарков: §r" + mine
+                                  + "\nДарить можно только друзьям, а анонимность включается в сундуке."
+                                  + "\nЕсли подарок не забрать за " + giftReturnDays + " дн., он вернётся отправителю.");
+                  w.addButton(btn("Сделать подарок другу"));
+                  w.addButton(btn("Мои подарки" + (mine > 0 ? " (" + mine + ")" : "")));
+                  w.addButton(btn("Назад"));
+                  open(p, "gifts", w, null, null);
+              }
+
+              void menuGiftFriend(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  if (d.friends.isEmpty()) {
+                      res(p, "Сделать подарок", "У тебя пока нет друзей, а дарить можно только им.", "gifts");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lКому подарок?", "Выбери друга. Дальше откроется сундук: положи в него предметы.");
+                  List<String> keys = new ArrayList<>();
+                  for (String fk : d.friends) {
+                      Store.PD f = st.players.get(fk);
+                      w.addButton(btn((f != null ? f.name : fk) + (online(fk) != null ? " (в сети)" : "")));
+                      keys.add(fk);
+                  }
+                  open(p, "giftFriend", w, keys, null);
+              }
+
+              void menuTp(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  FormWindowSimple w = new FormWindowSimple("§lТелепорт к другу", "Выбери друга в сети, ему придёт запрос на телепортацию.");
+                  List<String> keys = new ArrayList<>();
+                  for (String fk : d.friends) {
+                      Player o = online(fk);
+                      if (o == null) continue;
+                      w.addButton(btn(o.getName()));
+                      keys.add(fk);
+                  }
+                  if (keys.isEmpty()) {
+                      res(p, "Телепорт к другу", "Сейчас никто из друзей не в сети.", "main");
+                      return;
+                  }
+                  open(p, "tp", w, keys, null);
+              }
+
+              void menuMsgs(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  int um = unread(k);
+                  FormWindowSimple w = new FormWindowSimple("§lАнонимные сообщения",
+                          "§lОсталось отправить сегодня: §r" + msgLeft(d) + " из " + msgLimit
+                                  + "\n§lНовых сообщений: §r" + um
+                                  + "\nПисать можно только друзьям. Автор скрыт, на ответ приходит твой ник.");
+                  w.addButton(btn("Написать анонимное сообщение"));
+                  w.addButton(btn("Прочитать мои сообщения" + (um > 0 ? " (" + um + ")" : "")));
+                  w.addButton(btn("Ответить на сообщение"));
+                  w.addButton(btn("Назад"));
+                  open(p, "msgs", w, null, null);
+              }
+
+              void menuMsgFriend(Player p) {
+                  String k = key(p.getName());
+                  Store.PD d = st.ensure(k, p.getName());
+                  if (d.friends.isEmpty()) {
+                      res(p, "Написать сообщение", "У тебя пока нет друзей.", "msgs");
+                      return;
+                  }
+                  if (msgLeft(d) <= 0) {
+                      res(p, "Написать сообщение", "Лимит на сегодня исчерпан: " + msgLimit + " сообщений. Новый день в 00:00.", "msgs");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lКому написать?", "Выбери друга. Он не узнает, что это ты.");
+                  List<String> keys = new ArrayList<>();
+                  for (String fk : d.friends) {
+                      Store.PD f = st.players.get(fk);
+                      w.addButton(btn((f != null ? f.name : fk) + (online(fk) != null ? " (в сети)" : "")));
+                      keys.add(fk);
+                  }
+                  open(p, "msgFriend", w, keys, null);
+              }
+
+              void menuMsgInput(Player p, String fk) {
+                  Store.PD d = st.ensure(key(p.getName()), p.getName());
+                  Store.PD f = st.players.get(fk);
+                  FormWindowCustom w = new FormWindowCustom("§lСообщение для " + (f != null ? f.name : fk));
+                  w.addElement(new ElementInput("Текст (до " + msgMax + " символов). Осталось сегодня: " + msgLeft(d), "Напиши сообщение"));
+                  open(p, "msgInput", w, null, fk);
+              }
+
+              void menuInbox(Player p) {
+                  String k = key(p.getName());
+                  List<Store.Msg> list = inbox(k);
+                  if (list.isEmpty()) {
+                      res(p, "Мои сообщения", "У тебя пока нет сообщений.", "msgs");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lМои сообщения", "Выбери сообщение, чтобы прочитать.");
+                  List<String> ids = new ArrayList<>();
+                  for (Store.Msg m : list) {
+                      if (ids.size() >= 30) break;
+                      String who = m.type.equals("reply") ? "Ответ от " + m.fromName : "Аноним";
+                      w.addButton(btn((m.read ? "" : "[новое] ") + who + " · " + dt(m.created)));
+                      ids.add(String.valueOf(m.id));
+                  }
+                  open(p, "inbox", w, ids, null);
+              }
+
+              void menuMsgView(Player p, long id) {
+                  String k = key(p.getName());
+                  Store.Msg m = st.findMsg(id);
+                  if (m == null || !m.to.equals(k)) {
+                      res(p, "Сообщение", "Это сообщение уже недоступно.", "inbox");
+                      return;
+                  }
+                  m.read = true;
+                  st.dirty();
+                  String head = m.type.equals("reply") ? "Ответ от " + m.fromName : "Анонимное сообщение";
+                  FormWindowSimple w = new FormWindowSimple("§l" + head,
+                          "§l" + dt(m.created) + "§r\n\n" + m.text + (m.replied ? "\n\n§lТы уже ответил на это сообщение." : ""));
+                  List<String> acts = new ArrayList<>();
+                  if (m.type.equals("anon") && !m.replied) {
+                      w.addButton(btn("Ответить"));
+                      acts.add("reply");
+                  }
+                  if (!m.reported) {
+                      w.addButton(btn("Пожаловаться"));
+                      acts.add("report");
+                      w.addButton(btn("Удалить"));
+                      acts.add("delete");
+                  }
+                  w.addButton(btn("Назад"));
+                  acts.add("back");
+                  open(p, "msgView", w, acts, String.valueOf(id));
+              }
+
+              void menuReplyList(Player p) {
+                  String k = key(p.getName());
+                  List<Store.Msg> list = new ArrayList<>();
+                  for (Store.Msg m : inbox(k)) {
+                      if (m.type.equals("anon") && !m.replied) list.add(m);
+                  }
+                  if (list.isEmpty()) {
+                      res(p, "Ответить", "Нет сообщений, на которые можно ответить.", "msgs");
+                      return;
+                  }
+                  FormWindowSimple w = new FormWindowSimple("§lОтветить на сообщение", "Выбери сообщение. Ответ придёт автору от твоего имени.");
+                  List<String> ids = new ArrayList<>();
+                  for (Store.Msg m : list) {
+                      if (ids.size() >= 30) break;
+                      String t = m.text.length() > 28 ? m.text.substring(0, 28) + "…" : m.text;
+                      w.addButton(btn(dt(m.created) + ": " + t));
+                      ids.add(String.valueOf(m.id));
+                  }
+                  open(p, "replyList", w, ids, null);
+              }
+
+              void menuReplyInput(Player p, long id) {
+                  Store.Msg m = st.findMsg(id);
+                  if (m == null || !m.to.equals(key(p.getName())) || m.replied) {
+                      res(p, "Ответить", "На это сообщение уже нельзя ответить.", "msgs");
+                      return;
+                  }
+                  FormWindowCustom w = new FormWindowCustom("§lОтвет на сообщение");
+                  w.addElement(new ElementInput("Твой ответ (до " + msgMax + " символов)", "Напиши ответ"));
+                  open(p, "replyInput", w, null, String.valueOf(id));
+              }
+
+              // ================== обработка ответов ==================
+
+              static String inputOf(FormResponse r) {
+                  if (r instanceof FormResponseCustom) {
+                      String s = ((FormResponseCustom) r).getInputResponse(0);
+                      return s == null ? "" : s.trim();
+                  }
+                  return "";
+              }
+
+              static long parseId(String s) {
+                  try {
+                      return Long.parseLong(s);
+                  } catch (Throwable t) {
+                      return -1;
+                  }
+              }
+
+              void handle(Player p, Ctx c, FormResponse r) {
+                  int idx = -1;
+                  if (r instanceof FormResponseSimple) idx = ((FormResponseSimple) r).getClickedButtonId();
+                  else if (r instanceof FormResponseModal) idx = ((FormResponseModal) r).getClickedButtonId();
+                  String k = key(p.getName());
+                  boolean inData = c.data != null && idx >= 0 && idx < c.data.size();
+                  switch (c.type) {
+                      case "main":
+                          if (idx == 0) menuSpark(p);
+                          else if (idx == 1) menuGifts(p);
+                          else if (idx == 2) menuTp(p);
+                          else if (idx == 3) menuMsgs(p);
+                          else if (idx == 4) menuAdd(p);
+                          else if (idx == 5) menuInvites(p);
+                          else if (idx == 6) menuOnline(p);
+                          else if (idx == 7) menuDelete(p);
+                          break;
+                      case "spark":
+                          if (idx == 0) menuStart(p);
+                          else if (idx == 1) menuMySparks(p);
+                          else if (idx == 2) menuProlong(p);
+                          else if (idx == 3) res(p, "Вывод монет", withdraw(p), "spark");
+                          else if (idx == 4) menuWhat(p);
+                          else if (idx == 5) menuMain(p);
+                          break;
+                      case "start":
+                          if (inData) res(p, "Начать огонёк", inviteSpark(p, c.data.get(idx)), "spark");
+                          break;
+                      case "prolong":
+                          if (inData) {
+                              String id = c.data.get(idx);
+                              Store.Spark target = null;
+                              for (Store.Spark s : st.sparks) {
+                                  if (s.id().equals(id)) target = s;
+                              }
+                              if (target == null || !(target.a.equals(k) || target.b.equals(k))) {
+                                  res(p, "Продлить огонёк", "Этот огонёк уже недействителен.", "spark");
+                              } else {
+                                  res(p, "Продлить огонёк", prolong(p, target), "spark");
+                              }
+                          }
+                          break;
+                      case "gifts":
+                          if (idx == 0) menuGiftFriend(p);
+                          else if (idx == 1) gifts.openMine(p);
+                          else if (idx == 2) menuMain(p);
+                          break;
+                      case "giftFriend":
+                          if (inData) {
+                              String fk = c.data.get(idx);
+                              Store.PD f = st.players.get(fk);
+                              Store.PD me = st.ensure(k, p.getName());
+                              if (f == null || !me.friends.contains(fk)) {
+                                  res(p, "Сделать подарок", "Этот игрок больше не в твоих друзьях.", "gifts");
+                              } else if (st.giftsFor(fk).size() >= giftMaxUnclaimed) {
+                                  res(p, "Сделать подарок", f.name + " не может принять ещё подарки: у него слишком много неполученных.", "gifts");
+                              } else {
+                                  gifts.openSend(p, fk, f.name);
+                              }
+                          }
+                          break;
+                      case "tp":
+                          if (inData) {
+                              String fk = c.data.get(idx);
+                              Player t = online(fk);
+                              if (t == null) {
+                                  res(p, "Телепорт к другу", "Игрок уже вышел из игры.", "main");
+                              } else {
+                                  p.sendMessage(PFX + "Отправляю запрос на телепортацию игроку §e" + t.getName() + "§r.");
+                                  try {
+                                      getServer().dispatchCommand(p, "tpa " + fk);
+                                  } catch (Throwable ignored) {
+                                  }
+                              }
+                          }
+                          break;
+                      case "msgs":
+                          if (idx == 0) menuMsgFriend(p);
+                          else if (idx == 1) menuInbox(p);
+                          else if (idx == 2) menuReplyList(p);
+                          else if (idx == 3) menuMain(p);
+                          break;
+                      case "msgFriend":
+                          if (inData) menuMsgInput(p, c.data.get(idx));
+                          break;
+                      case "msgInput": {
+                          String in = inputOf(r);
+                          if (in.isEmpty()) res(p, "Написать сообщение", "Ты не ввёл текст.", "msgs");
+                          else res(p, "Написать сообщение", sendAnon(p, c.extra == null ? "" : c.extra, in), "msgs");
+                          break;
+                      }
+                      case "inbox":
+                          if (inData) menuMsgView(p, parseId(c.data.get(idx)));
+                          break;
+                      case "msgView": {
+                          long id = parseId(c.extra);
+                          Store.Msg m = st.findMsg(id);
+                          if (!inData || m == null || !m.to.equals(k)) {
+                              menuInbox(p);
+                              break;
+                          }
+                          String act = c.data.get(idx);
+                          if (act.equals("reply")) menuReplyInput(p, id);
+                          else if (act.equals("report")) res(p, "Жалоба", reportMsg(p, m), "inbox");
+                          else if (act.equals("delete")) {
+                              if (!m.reported) {
+                                  st.msgs.remove(m);
+                                  st.dirty();
+                              }
+                              res(p, "Сообщение", "Сообщение удалено.", "inbox");
+                          } else menuInbox(p);
+                          break;
+                      }
+                      case "replyList":
+                          if (inData) menuReplyInput(p, parseId(c.data.get(idx)));
+                          break;
+                      case "replyInput": {
+                          String in = inputOf(r);
+                          Store.Msg m = st.findMsg(parseId(c.extra));
+                          if (m == null) res(p, "Ответить", "Сообщение уже недоступно.", "msgs");
+                          else if (in.isEmpty()) res(p, "Ответить", "Ты не ввёл текст.", "msgs");
+                          else res(p, "Ответить", sendReply(p, m, in), "msgs");
+                          break;
+                      }
+                      case "af":
+                          if (!isAdmin(p)) break;
+                          if (idx == 0) menuAdmin(p);
+                          else if (idx == 1) menuAdminReports(p);
+                          else if (idx == 2) menuAdminGifts(p);
+                          break;
+                      case "afRep":
+                          if (isAdmin(p) && inData) menuAdminReportView(p, parseId(c.data.get(idx)));
+                          break;
+                      case "afRepView": {
+                          if (!isAdmin(p)) break;
+                          Store.Msg m = st.findMsg(parseId(c.extra));
+                          if (m != null && idx == 0) {
+                              m.handled = true;
+                              st.dirty();
+                              resForm(p, "Жалоба", "Жалоба закрыта.", "af");
+                          } else if (m != null && idx == 1) {
+                              st.msgs.remove(m);
+                              st.dirty();
+                              resForm(p, "Жалоба", "Сообщение удалено.", "af");
+                          } else {
+                              menuAdminReports(p);
+                          }
+                          break;
+                      }
+                      case "add":
+                          if (idx == 0) menuAddInput(p);
+                          else if (idx == 1) menuAddOnline(p);
+                          else if (idx == 2) menuMain(p);
+                          break;
+                      case "addInput": {
+                          String in = inputOf(r);
+                          if (in.isEmpty()) {
+                              res(p, "Добавить друга", "Ты не ввёл ник.", "add");
+                              break;
+                          }
+                          String[] t = resolve(in);
+                          if (t == null) {
+                              res(p, "Добавить друга", "Игрок «" + in + "» не найден. Он должен хотя бы раз зайти на сервер.", "add");
+                          } else {
+                              res(p, "Добавить друга", inviteFriend(p, t[0], t[1]), "add");
+                          }
+                          break;
+                      }
+                      case "addOnline":
+                          if (inData) {
+                              String tk = c.data.get(idx);
+                              Player o = online(tk);
+                              String nm = o != null ? o.getName() : tk;
+                              res(p, "Добавить друга", inviteFriend(p, tk, nm), "add");
+                          }
+                          break;
+                      case "invList":
+                          if (inData) {
+                              String[] parts = c.data.get(idx).split("\\|", 2);
+                              if (parts.length == 2) menuInviteAct(p, parts[0], parts[1]);
+                          }
+                          break;
+                      case "invAct": {
+                          String[] parts = c.extra == null ? new String[0] : c.extra.split("\\|", 2);
+                          if (parts.length != 2) break;
+                          Store.Inv inv = findInv(parts[0], parts[1], k);
+                          if (inv == null) {
+                              res(p, "Приглашение", "Это приглашение уже недействительно.", "inv");
+                          } else if (idx == 0) {
+                              res(p, "Приглашение", acceptInv(p, inv), "inv");
+                          } else {
+                              res(p, "Приглашение", declineInv(p, inv), "inv");
+                          }
+                          break;
+                      }
+                      case "del":
+                          if (inData) menuDeleteConfirm(p, c.data.get(idx));
+                          break;
+                      case "delConfirm":
+                          if (idx == 0 && c.extra != null) {
+                              res(p, "Удалить друга", removeFriend(p, c.extra), "main");
+                          } else {
+                              menuMain(p);
+                          }
+                          break;
+                      case "res":
+                          goBack(p, c.extra);
+                          break;
+                      default:
+                          break;
+                  }
+              }
+          }
+          EOF_MAIN
+
+      - name: Build with Maven
+        run: mvn -B -q package
+
+      - name: Upload plugin jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: EclipsFriends
+          path: target/EclipsFriends.jar
+          if-no-files-found: error
